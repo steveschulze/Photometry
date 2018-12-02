@@ -1,0 +1,18 @@
+2018-12-02 23:49:14,536 - INFO - Step 1: Administration
+2018-12-02 23:49:14,536 - INFO - Output directory: results/
+2018-12-02 23:49:14,536 - INFO - Command: photometry_hst.py --ra 11:33:41.5184 --dec "+0:43:33.182" --fits SN2015bn_F625W_drc.fits --ana-thresh 5 --det-thresh 5 --ap-diam 0.25 0.5 0.75 1.0 1.5 2.0 --ap-inner-annulus 1.25 --ap-outer-annulus 2.5 --keeptemp False --loglevel INFO --outdir results/ --sex-loglevel WARNING --tol 2 
+2018-12-02 23:49:14,635 - INFO - Is the object in the image footprint: Passed
+2018-12-02 23:49:14,672 - INFO - Step 2: Generate source catalogue
+2018-12-02 23:49:14,723 - WARNING - Ouch, SExtractor complains :
+2018-12-02 23:49:14,723 - WARNING - b''
+2018-12-02 23:49:32,031 - WARNING - FITSFixedWarning: RADESYSO= 'ICRS ' 
+syntactically valid WCS keyrecord has no effect.
+2018-12-02 23:49:32,434 - WARNING - FITSFixedWarning: The WCS transformation has more axes (2) than the image it is associated with (0)
+2018-12-02 23:49:32,441 - INFO - Step 3: Background estimation (can take some time...)
+2018-12-02 23:49:32,587 - WARNING - Input data contains invalid values (NaNs or infs), which were automatically masked.
+2018-12-02 23:50:32,804 - INFO - Step 4: Perform aperture photometry
+2018-12-02 23:50:37,078 - INFO - Step 5: Curve of growth analysis
+2018-12-02 23:51:36,184 - INFO - Step 6: Make cutout
+2018-12-02 23:52:08,749 - INFO - Step 7: Prepare output catalogue
+2018-12-02 23:52:08,833 - INFO - Step 9: Write results to file
+2018-12-02 23:52:08,839 - INFO - Step 10: Remove all temps

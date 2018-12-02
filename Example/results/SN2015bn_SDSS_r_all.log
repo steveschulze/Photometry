@@ -1,0 +1,232 @@
+SExtractor was called with :
+sex SN2015bn_SDSS_r.fits -c /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/config.txt -ANALYSIS_THRESH 1 -ASSOC_PARAMS 1,2 -ASSOC_RADIUS 10 -BACK_SIZE 64 -BACK_FILTERSIZE 3 -CHECKIMAGE_NAME check_SN2015bn_SDSS_r.fits -CHECKIMAGE_TYPE APERTURES -DEBLEND_NTHRESH 64 -DEBLEND_MINCONT 1e-05 -DETECT_MINAREA 5 -DETECT_THRESH 1 -GAIN_KEY 1 -PHOT_APERTURES 7.44,14.88,22.32,29.76 -PHOT_FLUXFRAC 0.5 -PHOT_AUTOPARAMS 2.5,3.5 -PHOT_PETROPARAMS 2.0,3.5 -SATURATION 100000000 -PARAMETERS_NAME /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/params.txt -FILTER_NAME /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/conv.txt -PSF_NAME /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/default.psf -CATALOG_NAME /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/SN2015bn_SDSS_r.cat.txt
+
+A nicer view of the config:
+               ANALYSIS_THRESH :                              1
+                  ASSOC_PARAMS :                            1,2
+                  ASSOC_RADIUS :                             10
+                     BACK_SIZE :                             64
+               BACK_FILTERSIZE :                              3
+               CHECKIMAGE_NAME :     check_SN2015bn_SDSS_r.fits
+               CHECKIMAGE_TYPE :                      APERTURES
+               DEBLEND_NTHRESH :                             64
+               DEBLEND_MINCONT :                          1e-05
+                DETECT_MINAREA :                              5
+                 DETECT_THRESH :                              1
+                      GAIN_KEY :                              1
+                PHOT_APERTURES :         7.44,14.88,22.32,29.76
+                 PHOT_FLUXFRAC :                            0.5
+               PHOT_AUTOPARAMS :                       2.5, 3.5
+              PHOT_PETROPARAMS :                       2.0, 3.5
+                    SATURATION :                      100000000
+               PARAMETERS_NAME : /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/params.txt
+                   FILTER_NAME : /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/conv.txt
+                      PSF_NAME : /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/default.psf
+                  CATALOG_NAME : /var/folders/fk/8ny2rsqs0kgcgkhc1bqhbsrr0000gp/T/sewpy_workdir_rsevwvvp/SN2015bn_SDSS_r.cat.txt
+
+####### stdout #######
+
+####### stderr #######
+
+> WARNING: SATURATION keyword unknown
+
+[1M> 
+[1A----- SExtractor 2.19.5 started on 2018-12-02 at 23:44:50 with 1 thread
+
+[1M> Setting catalog parameters
+[1A[1M> Reading detection filter
+[1A[1M> Initializing check-image(s)
+[1A[1M> Initializing catalog
+[1A[1M> Looking for SN2015bn_SDSS_r.fits
+[1A----- Measuring from: SN2015bn_SDSS_r.fits
+      "Unnamed" / no ext. header / 3028x3028 / 32 bits (floats)
+Detection+Measurement image: [1M> Setting up background maps
+[1A[1M> Setting up background map at line:   64
+[1A[1M> Setting up background map at line:  128
+[1A[1M> Setting up background map at line:  192
+[1A[1M> Setting up background map at line:  256
+[1A[1M> Setting up background map at line:  320
+[1A[1M> Setting up background map at line:  384
+[1A[1M> Setting up background map at line:  448
+[1A[1M> Setting up background map at line:  512
+[1A[1M> Setting up background map at line:  576
+[1A[1M> Setting up background map at line:  640
+[1A[1M> Setting up background map at line:  704
+[1A[1M> Setting up background map at line:  768
+[1A[1M> Setting up background map at line:  832
+[1A[1M> Setting up background map at line:  896
+[1A[1M> Setting up background map at line:  960
+[1A[1M> Setting up background map at line: 1024
+[1A[1M> Setting up background map at line: 1088
+[1A[1M> Setting up background map at line: 1152
+[1A[1M> Setting up background map at line: 1216
+[1A[1M> Setting up background map at line: 1280
+[1A[1M> Setting up background map at line: 1344
+[1A[1M> Setting up background map at line: 1408
+[1A[1M> Setting up background map at line: 1472
+[1A[1M> Setting up background map at line: 1536
+[1A[1M> Setting up background map at line: 1600
+[1A[1M> Setting up background map at line: 1664
+[1A[1M> Setting up background map at line: 1728
+[1A[1M> Setting up background map at line: 1792
+[1A[1M> Setting up background map at line: 1856
+[1A[1M> Setting up background map at line: 1920
+[1A[1M> Setting up background map at line: 1984
+[1A[1M> Setting up background map at line: 2048
+[1A[1M> Setting up background map at line: 2112
+[1A[1M> Setting up background map at line: 2176
+[1A[1M> Setting up background map at line: 2240
+[1A[1M> Setting up background map at line: 2304
+[1A[1M> Setting up background map at line: 2368
+[1A[1M> Setting up background map at line: 2432
+[1A[1M> Setting up background map at line: 2496
+[1A[1M> Setting up background map at line: 2560
+[1A[1M> Setting up background map at line: 2624
+[1A[1M> Setting up background map at line: 2688
+[1A[1M> Setting up background map at line: 2752
+[1A[1M> Setting up background map at line: 2816
+[1A[1M> Setting up background map at line: 2880
+[1A[1M> Setting up background map at line: 2944
+[1A[1M> Setting up background map at line: 3008
+[1A[1M> Filtering background map(s)
+[1A[1M> Computing background d-map
+[1A[1M> Computing background-noise d-map
+[1A(M+D) Background: 0.00142931 RMS: 0.0271667  / Threshold: 0.0271667  
+[1M> Scanning image
+[1A[1M> Line:   25  Objects:       36 detected /        0 sextracted
+[1A[1M> Line:   50  Objects:      112 detected /        0 sextracted
+[1A[1M> Line:   75  Objects:      249 detected /        0 sextracted
+[1A[1M> Line:  100  Objects:      419 detected /        0 sextracted
+[1A[1M> Line:  125  Objects:      596 detected /        0 sextracted
+[1A[1M> Line:  150  Objects:      924 detected /        0 sextracted
+[1A[1M> Line:  175  Objects:     1343 detected /        0 sextracted
+[1A[1M> Line:  200  Objects:     1969 detected /        0 sextracted
+[1A[1M> Line:  225  Objects:     2491 detected /        0 sextracted
+[1A[1M> Line:  250  Objects:     3047 detected /        0 sextracted
+[1A[1M> Line:  275  Objects:     3522 detected /        0 sextracted
+[1A[1M> Line:  300  Objects:     4130 detected /       84 sextracted
+[1A[1M> Line:  325  Objects:     4774 detected /      576 sextracted
+[1A[1M> Line:  350  Objects:     5403 detected /     1039 sextracted
+[1A[1M> Line:  375  Objects:     6095 detected /     1565 sextracted
+[1A[1M> Line:  400  Objects:     6813 detected /     2088 sextracted
+[1A[1M> Line:  425  Objects:     7535 detected /     2615 sextracted
+[1A[1M> Line:  450  Objects:     8271 detected /     3160 sextracted
+[1A[1M> Line:  475  Objects:     9087 detected /     3792 sextracted
+[1A[1M> Line:  500  Objects:     9861 detected /     4377 sextracted
+[1A[1M> Line:  525  Objects:    10787 detected /     5048 sextracted
+[1A[1M> Line:  550  Objects:    11629 detected /     5680 sextracted
+[1A[1M> Line:  575  Objects:    12480 detected /     6337 sextracted
+[1A[1M> Line:  600  Objects:    13347 detected /     6976 sextracted
+[1A[1M> Line:  625  Objects:    14144 detected /     7590 sextracted
+[1A[1M> Line:  650  Objects:    15253 detected /     8436 sextracted
+[1A[1M> Line:  675  Objects:    16381 detected /     9274 sextracted
+[1A[1M> Line:  700  Objects:    17547 detected /    10139 sextracted
+[1A[1M> Line:  725  Objects:    18490 detected /    10851 sextracted
+[1A[1M> Line:  750  Objects:    19306 detected /    11449 sextracted
+[1A[1M> Line:  775  Objects:    20152 detected /    12078 sextracted
+[1A[1M> Line:  800  Objects:    20956 detected /    12712 sextracted
+[1A[1M> Line:  825  Objects:    21692 detected /    13265 sextracted
+[1A[1M> Line:  850  Objects:    22426 detected /    13815 sextracted
+[1A[1M> Line:  875  Objects:    23176 detected /    14370 sextracted
+[1A[1M> Line:  900  Objects:    23879 detected /    14888 sextracted
+[1A[1M> Line:  925  Objects:    24528 detected /    15388 sextracted
+[1A[1M> Line:  950  Objects:    25112 detected /    15825 sextracted
+[1A[1M> Line:  975  Objects:    25691 detected /    16279 sextracted
+[1A[1M> Line: 1000  Objects:    26320 detected /    16713 sextracted
+[1A[1M> Line: 1025  Objects:    26884 detected /    17150 sextracted
+[1A[1M> Line: 1050  Objects:    28037 detected /    18151 sextracted
+[1A[1M> Line: 1075  Objects:    28579 detected /    18556 sextracted
+[1A[1M> Line: 1100  Objects:    29396 detected /    19167 sextracted
+[1A[1M> Line: 1125  Objects:    29565 detected /    19298 sextracted
+[1A[1M> Line: 1150  Objects:    29739 detected /    19440 sextracted
+[1A[1M> Line: 1175  Objects:    29884 detected /    19544 sextracted
+[1A[1M> Line: 1200  Objects:    29995 detected /    19622 sextracted
+[1A[1M> Line: 1225  Objects:    30081 detected /    19684 sextracted
+[1A[1M> Line: 1250  Objects:    30164 detected /    19752 sextracted
+[1A[1M> Line: 1275  Objects:    30229 detected /    19791 sextracted
+[1A[1M> Line: 1300  Objects:    30266 detected /    19823 sextracted
+[1A[1M> Line: 1325  Objects:    31132 detected /    20574 sextracted
+[1A[1M> Line: 1350  Objects:    31156 detected /    20590 sextracted
+[1A[1M> Line: 1375  Objects:    31191 detected /    20615 sextracted
+[1A[1M> Line: 1400  Objects:    31223 detected /    20642 sextracted
+[1A[1M> Line: 1425  Objects:    31255 detected /    20671 sextracted
+[1A[1M> Line: 1450  Objects:    31286 detected /    20697 sextracted
+[1A[1M> Line: 1475  Objects:    31324 detected /    20732 sextracted
+[1A[1M> Line: 1500  Objects:    31358 detected /    20762 sextracted
+[1A[1M> Line: 1525  Objects:    31394 detected /    20791 sextracted
+[1A[1M> Line: 1550  Objects:    31440 detected /    20827 sextracted
+[1A[1M> Line: 1575  Objects:    31482 detected /    20861 sextracted
+[1A[1M> Line: 1600  Objects:    31559 detected /    20914 sextracted
+[1A[1M> Line: 1625  Objects:    31594 detected /    20942 sextracted
+[1A[1M> Line: 1650  Objects:    31647 detected /    20989 sextracted
+[1A[1M> Line: 1675  Objects:    31689 detected /    21020 sextracted
+[1A[1M> Line: 1700  Objects:    31739 detected /    21052 sextracted
+[1A[1M> Line: 1725  Objects:    31775 detected /    21084 sextracted
+[1A[1M> Line: 1750  Objects:    31858 detected /    21145 sextracted
+[1A[1M> Line: 1775  Objects:    31913 detected /    21186 sextracted
+[1A[1M> Line: 1800  Objects:    31946 detected /    21214 sextracted
+[1A[1M> Line: 1825  Objects:    31979 detected /    21241 sextracted
+[1A[1M> Line: 1850  Objects:    32032 detected /    21264 sextracted
+[1A[1M> Line: 1875  Objects:    32061 detected /    21292 sextracted
+[1A[1M> Line: 1900  Objects:    32079 detected /    21308 sextracted
+[1A[1M> Line: 1925  Objects:    32123 detected /    21343 sextracted
+[1A[1M> Line: 1950  Objects:    32155 detected /    21367 sextracted
+[1A[1M> Line: 1975  Objects:    32195 detected /    21393 sextracted
+[1A[1M> Line: 2000  Objects:    32226 detected /    21420 sextracted
+[1A[1M> Line: 2025  Objects:    32265 detected /    21448 sextracted
+[1A[1M> Line: 2050  Objects:    32307 detected /    21482 sextracted
+[1A[1M> Line: 2066  Objects:    32331 detected /    21600 sextracted
+[1A[1M> Line: 2075  Objects:    32343 detected /    21814 sextracted
+[1A[1M> Line: 2084  Objects:    32357 detected /    22000 sextracted
+[1A[1M> Line: 2100  Objects:    32391 detected /    22379 sextracted
+[1A[1M> Line: 2103  Objects:    32399 detected /    22400 sextracted
+[1A[1M> Line: 2125  Objects:    32431 detected /    22553 sextracted
+[1A[1M> Line: 2150  Objects:    32484 detected /    22733 sextracted
+[1A[1M> Line: 2159  Objects:    32497 detected /    22800 sextracted
+[1A[1M> Line: 2175  Objects:    32519 detected /    22908 sextracted
+[1A[1M> Line: 2200  Objects:    32548 detected /    23059 sextracted
+[1A[1M> Line: 2223  Objects:    32601 detected /    23200 sextracted
+[1A[1M> Line: 2225  Objects:    32605 detected /    23218 sextracted
+[1A[1M> Line: 2250  Objects:    32651 detected /    23360 sextracted
+[1A[1M> Line: 2275  Objects:    32700 detected /    23459 sextracted
+[1A[1M> Line: 2300  Objects:    32741 detected /    23535 sextracted
+[1A[1M> Line: 2325  Objects:    32800 detected /    23575 sextracted
+[1A[1M> Line: 2350  Objects:    32830 detected /    23597 sextracted
+[1A[1M> Line: 2356  Objects:    32839 detected /    23600 sextracted
+[1A[1M> Line: 2375  Objects:    32863 detected /    23617 sextracted
+[1A[1M> Line: 2400  Objects:    32908 detected /    23647 sextracted
+[1A[1M> Line: 2425  Objects:    32932 detected /    23675 sextracted
+[1A[1M> Line: 2450  Objects:    32971 detected /    23708 sextracted
+[1A[1M> Line: 2475  Objects:    32998 detected /    23739 sextracted
+[1A[1M> Line: 2500  Objects:    33018 detected /    23768 sextracted
+[1A[1M> Line: 2525  Objects:    33044 detected /    23797 sextracted
+[1A[1M> Line: 2550  Objects:    33073 detected /    23829 sextracted
+[1A[1M> Line: 2575  Objects:    33106 detected /    23864 sextracted
+[1A[1M> Line: 2600  Objects:    33134 detected /    23925 sextracted
+[1A[1M> Line: 2625  Objects:    33173 detected /    23953 sextracted
+[1A[1M> Line: 2650  Objects:    33197 detected /    23993 sextracted
+[1A[1M> Line: 2656  Objects:    33203 detected /    24000 sextracted
+[1A[1M> Line: 2675  Objects:    33218 detected /    24028 sextracted
+[1A[1M> Line: 2700  Objects:    33244 detected /    24056 sextracted
+[1A[1M> Line: 2725  Objects:    33273 detected /    24092 sextracted
+[1A[1M> Line: 2750  Objects:    33310 detected /    24151 sextracted
+[1A[1M> Line: 2775  Objects:    33349 detected /    24192 sextracted
+[1A[1M> Line: 2800  Objects:    33383 detected /    24221 sextracted
+[1A[1M> Line: 2825  Objects:    33417 detected /    24243 sextracted
+[1A[1M> Line: 2850  Objects:    33452 detected /    24269 sextracted
+[1A[1M> Line: 2875  Objects:    33495 detected /    24297 sextracted
+[1A[1M> Line: 2900  Objects:    33534 detected /    24317 sextracted
+[1A[1M> Line: 2925  Objects:    33571 detected /    24348 sextracted
+[1A[1M> Line: 2950  Objects:    33616 detected /    24374 sextracted
+[1A[1M> Line: 2975  Objects:    33648 detected /    24400 sextracted
+[1A[1M> Line: 2979  Objects:    33653 detected /    24400 sextracted
+[1A[1M> Line: 3000  Objects:    33671 detected /    24426 sextracted
+[1A[1M> Line: 3025  Objects:    33694 detected /    24445 sextracted
+[1A[1M> Line: 3028  Objects:    33706 detected /    24800 sextracted
+[1A[1M> Line: 3028  Objects:    33706 detected /    25200 sextracted
+[1A      Objects: detected 33706    / sextracted 25448           
+
+[1M> Closing files
+[1A[1M> 
+[1A> All done (in 9.6 s: 315.8 lines/s , 2654.1 detections/s)
+
