@@ -1007,10 +1007,10 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
 
 		# If more than one object, take the most nearby one
 
-		distance			= np.array([np.sqrt( (x['XWIN_IMAGE'] - OBJECT_PROPERTIES['X_EXP'])**2 +  (x['YWIN_IMAGE'] - OBJECT_PROPERTIES['Y_EXP'])**2) for x in SEXTRACTOR_PHOTOMETRY])
+		distance			= [np.sqrt( (x['XWIN_IMAGE'] - OBJECT_PROPERTIES['X_EXP'])**2 +  (x['YWIN_IMAGE'] - OBJECT_PROPERTIES['Y_EXP'])**2) for x in SEXTRACTOR_PHOTOMETRY]
 
-		SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']	  = distance
-		SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'] = distance*fits_tools.pix2arcsec(FITS)
+		SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']	  = [float(x) for x in distance]
+		SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'] = SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']*fits_tools.pix2arcsec(FITS)
 		SEXTRACTOR_PHOTOMETRY.sort('DISTANCE (px)')
 
 		for key in ['XWIN_IMAGE', 'YWIN_IMAGE']:

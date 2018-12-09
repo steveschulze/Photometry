@@ -857,7 +857,7 @@ print(bcolors.HEADER + bcolors.BOLD + "\n{}\n".format(msg) + bcolors.ENDC)
 logger.info(msg)
 
 if 'DISTANCE (arcsec)' in phot_science.keys() and phot_science['DISTANCE (arcsec)'][0] <= args.host_offset:
-	phot_routines.make_poststamp(args.fits, [x_exp, y_exp], [phot_science['XWIN_IMAGE'][0], phot_science['YWIN_IMAGE'][0]], PATH=args.outdir)
+	phot_routines.make_poststamp(args.fits, [x_exp, y_exp], [summary_science['VALUE'][summary_science['PROPERTY'] == 'XWIN_IMAGE_OBS'][0], summary_science['VALUE'][summary_science['PROPERTY'] == 'YWIN_IMAGE_OBS'][0]], PATH=args.outdir)
 else:
 	phot_routines.make_poststamp(args.fits, [x_exp, y_exp], [0, 0], PATH=args.outdir)
 
