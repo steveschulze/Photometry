@@ -147,5 +147,5 @@ if not args.keep_temp:
 	os.system('rm default.*')
 	os.system('rm *ldac* *head*')
 
-	for i in range(len(scamp_log_file)):
-		os.system('mv scamp.xml results_scamp/{file}_scamp.xml'.format(file=scamp_log_file[i].decode("utf-8").replace('.fits', '').replace('.ldac', '').replace('ima_', '')))
+for i in range(len(scamp_log_file)):
+	os.system('mv scamp.xml results_scamp/{file}_scamp.xml'.format(file=scamp_log_file[i].decode("utf-8").replace('.fits', '').replace('.ldac', '').replace('ima_', '')))
