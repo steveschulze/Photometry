@@ -1,6 +1,6 @@
 # Photometry tools
 
-Tools to retrieve photometry catalogues, improve astrometry and perform aperture photometry.
+Tools to align images, improve astrometry, perform aperture photometry and retrieve photometry catalogues.
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ astroquery, photutils, pysynphot, sympy, sewpy, and sip_tpv (included)
 Futhermore, you need to install install these software packages
 
 ```
-astrometry.net, SExtractor and wcs-tools
+astrometry.net, Scamp, SExtractor and wcs-tools
 ```
 
 ## Installing
@@ -40,6 +40,43 @@ chmod u+x PROGRAMME.py
 -The first line in files field_calibration.py, improve_astro.py, photometry.py, photometry_hst.py is ```#!/usr/bin/env pythonw```. If you use linux, change ```pythonw``` to ```python```. With ```pythonw``` you can close plot windows with the keystroke &#8984;+w.
 
 ## Description of the tools
+
+### align_images.py
+
+#### How to call it?
+
+Requires: ```Scamp```, ```SExtractor```
+
+```
+usage: align_images.py [-h] --ref-image REF_IMAGE --new-image NEW_IMAGE
+                       [--keep-temp]
+
+Align the WCS systems of two images
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --ref-image REF_IMAGE Reference image
+  --new-image NEW_IMAGE New image
+  --keep-temp           Keep temporary files
+```
+
+#### Example
+
+```
+python align_images.fits --ref-image SN2015bn_SDSS_r.fits --new-image
+```
+
+#### How does it work?
+
+1) Identify objects in the reference image
+2) Identify objects in the new image
+3) Align the astrometry. Information about the quality of the alignment is saved in 'results_scamp/scamp.log'. The scamp log file is stored in 'results_scamp/{NEW_IMAGE}_scamp.xml'
+4) Remove temporary files
+
+#### Important note
+
+The programm can fail if the images are very different from each other, e.g., a shallow transient image and an HST image.
+If your browser does not display the scamp diagnostic file, reach these [notes](https://www.astromatic.net/2009/10/05/understanding-astromatic-metadata-files).
 
 ### improve_astrometry.py
 
