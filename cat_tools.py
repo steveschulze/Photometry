@@ -60,8 +60,10 @@ catalog_prop['PanSTARRS']['SIGMA_LOW']	= 0.2
 
 catalog_prop['UKIDSS']					= {}
 catalog_prop['UKIDSS']['KEYWORDS']		= ['RAJ2000', 'DEJ2000',
+											'cl',
 											'Ymag', 'e_Ymag',
 											'Jmag1', 'e_Jmag1',
+											'Jmag2', 'e_Jmag2',
 											'Hmag', 'e_Hmag',
 											'Kmag', 'e_Kmag']
 catalog_prop['UKIDSS']['CATID']			= "II/319"
@@ -91,7 +93,7 @@ def PS1_to_SDSS(DATA):
 	# the extrapolation from PS1 colors to u band is strongly
 	# metallicity dependent, and should be used with caution. The
 	# corrections are typically 0.01 mag in r and i, up to 0.1 mag in z,
-	# and up to 0.25 in g. 
+	# and up to 0.25 in g.
 
 	# After colour transformation differences between the PS1 and SDSS
 	# u(SDSS - PS1) = -26.29 mmag
@@ -128,7 +130,7 @@ def PS1_to_SDSS(DATA):
 			mag_SDSS	= DATA[filter+'_PS1'] - (coefficients[filter][0] + coefficients[filter][1] * x + coefficients[filter][2] * x**2 + coefficients[filter][3] * x**3)
 			mag_SDSS_err= np.sqrt(DATA[filter+'_PS1_ERR']**2 +
 						(           x_err * coefficients[filter][1]) ** 2 +
-						(2 * x *    x_err * coefficients[filter][2]) ** 2 + 
+						(2 * x *    x_err * coefficients[filter][2]) ** 2 +
 						(3 * x**2 * x_err * coefficients[filter][3]) ** 2
 						)
 
@@ -137,7 +139,7 @@ def PS1_to_SDSS(DATA):
 			mag_SDSS	= DATA['g_PS1'] - (coefficients[filter][0] + coefficients[filter][1] * x + coefficients[filter][2] * x**2 + coefficients[filter][3] * x**3)
 			mag_SDSS_err= np.sqrt(DATA['g_PS1_ERR']**2 +
 						(           x_err * coefficients[filter][1]) ** 2 +
-						(2 * x *    x_err * coefficients[filter][2]) ** 2 + 
+						(2 * x *    x_err * coefficients[filter][2]) ** 2 +
 						(3 * x**2 * x_err * coefficients[filter][3]) ** 2
 						)
 
@@ -154,35 +156,35 @@ def SDSS_to_Bessel(DATA):
 	# http://www.sdss3.org/dr8/algorithms/sdssUBVRITransform.php
 
 	DATA['B_BESSEL']	= DATA['g_SDSS'] + 0.3130*(DATA['g_SDSS'] - DATA['r_SDSS']) + 0.2271
-	DATA['B_BESSEL_ERR']= np.sqrt(0.0107**2 + 
+	DATA['B_BESSEL_ERR']= np.sqrt(0.0107**2 +
 						DATA['g_SDSS_ERR']**2 +
 						(0.3130 * DATA['g_SDSS_ERR'])**2 +
 						(0.3130 * DATA['r_SDSS_ERR'])**2
 						)
 
 	DATA['V_BESSEL']	= DATA['g_SDSS'] - 0.5784*(DATA['g_SDSS'] - DATA['r_SDSS']) - 0.0038
-	DATA['V_BESSEL_ERR']= np.sqrt(0.0054**2 + 
+	DATA['V_BESSEL_ERR']= np.sqrt(0.0054**2 +
 						DATA['g_SDSS_ERR']**2 +
 						(0.5784 * DATA['g_SDSS_ERR'])**2 +
 						(0.5784 * DATA['r_SDSS_ERR'])**2
 						)
 
 	DATA['R_BESSEL']	= DATA['r_SDSS'] - 0.1837*(DATA['g_SDSS'] - DATA['r_SDSS']) - 0.0971
-	DATA['R_BESSEL_ERR']= np.sqrt(0.0106**2 + 
+	DATA['R_BESSEL_ERR']= np.sqrt(0.0106**2 +
 						DATA['r_SDSS_ERR']**2 +
-						(0.1837 * DATA['g_SDSS_ERR'])**2 + 
+						(0.1837 * DATA['g_SDSS_ERR'])**2 +
 						(0.1837 * DATA['r_SDSS_ERR'])**2
 						)
 
 	DATA['I_BESSEL']	= DATA['r_SDSS'] - 1.2444*(DATA['r_SDSS'] - DATA['i_SDSS']) - 0.3820
-	DATA['I_BESSEL_ERR']= np.sqrt(0.0078**2 + 
+	DATA['I_BESSEL_ERR']= np.sqrt(0.0078**2 +
 						DATA['r_SDSS_ERR']**2 +
 						(1.2444 * DATA['r_SDSS_ERR'])**2 +
 						(1.2444 * DATA['i_SDSS_ERR'])**2
 						)
 
 	return DATA
-    
+
 def retrieve_photcat(OBJECT_PROP, PHOTCAT, CATPROP, FILENAME=None, ROW_LIMIT=-1, RADIUS=10. * u.arcmin, OUTDIR='photcat/'):
 
 	# Query VIZIER
@@ -239,9 +241,9 @@ def retrieve_photcat(OBJECT_PROP, PHOTCAT, CATPROP, FILENAME=None, ROW_LIMIT=-1,
 
 def crossmatch(X1, X2, max_distance=np.inf):
 	"""Cross-match the values between X1 and X2
-	
+
 	By default, this uses a KD Tree for speed.
-	
+
 	Parameters
 	----------
 	X1 : array_like
@@ -251,7 +253,7 @@ def crossmatch(X1, X2, max_distance=np.inf):
 	max_distance : float (optional)
 		maximum radius of search.  If no point is within the given radius,
 		then inf will be returned.
-	
+
 	Returns
 	-------
 	dist, ind: ndarrays
@@ -259,25 +261,25 @@ def crossmatch(X1, X2, max_distance=np.inf):
 		Both arrays are length N1.
 		Locations with no match are indicated by
 		dist[i] = inf, ind[i] = N2
-	
+
 	Taken from astroML. Add multi-processing capabilities
-	
+
 	"""
 	X1			= np.asarray(X1, dtype=float)
 	X2	 		= np.asarray(X2, dtype=float)
-	
+
 	N1, D		= X1.shape
 	N2, D2 		= X2.shape
-	
+
 	if D != D2:
 		raise ValueError('Arrays must have the same second dimension')
-	
+
 	kdt			= cKDTree(X2)
-	
+
 	dist, ind	= kdt.query(X1, k=1, distance_upper_bound=max_distance, n_jobs=-1)
-	
+
 	return dist, ind
- 
+
 def crossmatch_angular(X1, X2, max_distance=np.inf):
 	"""Cross-match angular values between X1 and X2
 
@@ -331,22 +333,22 @@ def crossmatch_angular(X1, X2, max_distance=np.inf):
 								np.sqrt(np.maximum(0, 1 - x ** 2))))
 
 	return dist, ind
- 
+
 def wrapper_crossmatch(FILE1, FILE2, RADIUS):
- 
+
     # # Load data file
- 
+
     data_1              = FILE1#np.loadtxt(FILE1)
     data_2              = FILE2#np.loadtxt(FILE2)
- 
+
     # Make matricies of coordinates
- 
+
     dist, idx           = crossmatch_angular(data_1[:,:2], data_2[:,:2], 1)
     result              = np.hstack([data_2[idx,:], data_1])
     result              = np.hstack([result, dist.reshape(-1,1)])
- 
+
     # Filter data
- 
+
     result              = result[result[:,-1] < RADIUS/3600.,:]
- 
+
     return result#table.Table(result, names=('RA_1', 'DEC_1', 'MAG_1', 'MAGERR_1', 'RA_2', 'DEC_2', 'MAG_2', 'MAGERR_2', 'DIST'))

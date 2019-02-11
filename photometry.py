@@ -57,7 +57,7 @@ parser.add_argument('--ref-image',		type	= str,
 										help	= 'Name of reference image to run sextractor in dual image mode?',
 										default	= '')
 
-parser.add_argument('--ref-radius',		type	= str,
+parser.add_argument('--ref-radius',		type	= float,
 										help	= 'Search radius in the reference catalogue query? (default: 10, unit: arcmin)',
 										default	= 10)
 
@@ -99,6 +99,10 @@ parser.add_argument('--deblend-nthresh',type	= int,
 parser.add_argument('--deblend-mincont',type	= float,
 										help	= 'Minimum contrast parameter for deblending (default: 0.00001)',
 										default	= 0.00001)
+
+parser.add_argument('--noflags',		action	= 'store_true',
+										help	= 'Do not use the sextractor keyword \'FLAGS\' to filter objects (default: False)',
+										default	= False)
 
 # Zeropoint determination		
 		
@@ -202,7 +206,7 @@ cmd 								= 'photometry.py '
 
 for key in sorted(vars(args)):
 
-	if key in ['auto', 'bw']:
+	if key in ['auto', 'bw', 'noflags']:
 		if vars(args)[key]:
 			value					= ''
 			cmd += '--{key} '.format(key=key)
@@ -423,21 +427,33 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	logger.info('4) Limiting the number to {numstars}'.format(numstars=args.maxstars))
 	logger.info('5) Only consider stars with measurements errors between 0.001 and 0.2 mag')
 
-
 	# Flag clipping
-	ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
+	if not args.noflags:
+		ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
 	
 	# Remove elongated objects (eccentricity < 0.2)
-	ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['A_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
+	ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['B_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
 
 	# PSF clipping
 	# print (ref_stars)
 	
+	# FWHM_IMAGE can fail if there is something funny with the sources
+	# If this fails, it uses FLUX_RADIUS 
+
 	fwhm_p25						= np.percentile(ref_stars['FWHM_IMAGE'], 25)
 	fwhm_p50						= np.percentile(ref_stars['FWHM_IMAGE'], 50)
 	fwhm_p75						= np.percentile(ref_stars['FWHM_IMAGE'], 75)
-		
+			
 	fwhm_mask_good					= np.where(ref_stars['FWHM_IMAGE'] < fwhm_p75 + 1.5 * (fwhm_p75 - fwhm_p25))[0]
+
+	if len(fwhm_mask_good) == 0:
+
+		fwhm_p25						= np.percentile(ref_stars['FLUX_RADIUS'], 25) * 2 / 1.1
+		fwhm_p50						= np.percentile(ref_stars['FLUX_RADIUS'], 50) * 2 / 1.1
+		fwhm_p75						= np.percentile(ref_stars['FLUX_RADIUS'], 75) * 2 / 1.1
+				
+		fwhm_mask_good					= np.where(ref_stars['FLUX_RADIUS'] < fwhm_p75 + 1.5 * (fwhm_p75 - fwhm_p25))[0]
+
 	ref_stars 						= ref_stars[fwhm_mask_good]
 
 	# Magnitude cut
@@ -448,8 +464,6 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	ref_stars						= ref_stars[ref_stars['MAGERR_APER'] <= cut_high]
 	ref_stars						= ref_stars[ref_stars['MAGERR_APER'] >= cut_low]
 
-	# print (len(ref_stars))
-
 	# sigma clipping
 
 	if len(ref_stars) > args.maxstars:
@@ -457,8 +471,6 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 
 		ref_stars.sort('MAGERR_AUTO')
 		ref_stars 					= ref_stars[:args.maxstars]
-
-		# print (len(ref_stars))
 
 	logger.info('{numstars} stars remain after pruning'.format(numstars=len(ref_stars)))
 
@@ -533,18 +545,28 @@ else:
 	# 5) Only consider stars with measurement errors between 0.001 and 0.2 mag
 
 	# Flag clipping
-	ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
+	if not args.noflags:
+		ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
 	
 	# Remove elongated objects (eccentricity < 0.2)
 	ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['A_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
 			
 	# PSF clipping			
-			
+
 	fwhm_p25						= np.percentile(ref_stars['FWHM_IMAGE'], 25)
 	fwhm_p50						= np.percentile(ref_stars['FWHM_IMAGE'], 50)
 	fwhm_p75						= np.percentile(ref_stars['FWHM_IMAGE'], 75)
 			
 	fwhm_mask_good					= np.where(ref_stars['FWHM_IMAGE'] < fwhm_p75 + 1.5 * (fwhm_p75 - fwhm_p25))[0]
+
+	if len(fwhm_mask_good) == 0:
+
+		fwhm_p25						= np.percentile(ref_stars['FLUX_RADIUS'], 25) * 2 / 1.1
+		fwhm_p50						= np.percentile(ref_stars['FLUX_RADIUS'], 50) * 2 / 1.1
+		fwhm_p75						= np.percentile(ref_stars['FLUX_RADIUS'], 75) * 2 / 1.1
+				
+		fwhm_mask_good					= np.where(ref_stars['FLUX_RADIUS'] < fwhm_p75 + 1.5 * (fwhm_p75 - fwhm_p25))[0]
+
 	ref_stars 						= ref_stars[fwhm_mask_good]
 
 	# sigma clipping

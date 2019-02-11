@@ -294,10 +294,13 @@ if not os.path.isfile(args.fits.replace('.fits', '_wcs.fits')):
 else:
 	# Delete temp files
 	cwd							= os.getcwd()
-	os.chdir(os.path.dirname(args.fits))
-	os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
-	os.chdir(cwd)
-
+	if os.path.dirname(args.fits) != '':
+		os.chdir(os.path.dirname(args.fits))
+		os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
+		os.chdir(cwd)
+	else:
+		os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
+		
 	# Transform SIP to PV to use distortion keywords in sextractor
 
 	#print 
