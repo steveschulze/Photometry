@@ -70,7 +70,7 @@ python align_images.fits --ref-image SN2015bn_SDSS_r.fits --new-image
 
 1) Identify objects in the reference image
 2) Identify objects in the new image
-3) Align the astrometry. Information about the quality of the alignment is saved in 'results_scamp/scamp.log'. The scamp log file is stored in 'results_scamp/{NEW_IMAGE}_scamp.xml'
+3) Align the astrometry. Information about the quality of the alignment is saved in 'results_scamp/scamp.log'. The scamp log file is stored in 'results_scamp/{NEW_IMAGE}_scamp.xml'. New fits will be named '{NEW_IMAGE}_astro.fits'
 4) Remove temporary files
 
 #### Important note
