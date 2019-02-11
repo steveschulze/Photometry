@@ -63,7 +63,7 @@ optional arguments:
 #### Example
 
 ```
-python align_images.fits --ref-image SN2015bn_SDSS_r.fits --new-image
+python align_images.fits --ref-image SN2015bn_SDSS_r.fits --new-image SN2015bn_SDSS_i.fits
 ```
 
 #### How does it work?
