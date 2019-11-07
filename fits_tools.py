@@ -64,7 +64,7 @@ def sky2xy (FITS, RA=False, DEC=False, CAT=None):
 			program_call = os.popen(cmd)
 			xy = []
 			for line in program_call:
-					xy=np.array(line.strip().split()[-2:]).astype(float)
+				xy=np.array(line.strip().split()[-2:]).astype(float)
 			if len(xy) > 0:
 				return xy
 
