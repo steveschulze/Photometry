@@ -52,7 +52,7 @@ output.write('XWIN_IMAGE\nYWIN_IMAGE\nERRAWIN_IMAGE\nERRBWIN_IMAGE\nERRTHETAWIN_
 output.close()
 
 os.system('sex -c default.sex \
-			-DETECT_MINAREA 2 -DETECT_THRESH 5 -ANALYSIS_THRESH 5 \
+			-DETECT_MINAREA 2 -DETECT_THRESH 3 -ANALYSIS_THRESH 3 \
 			-DEBLEND_NTHRESH 64 -DEBLEND_MINCONT 0.000005 \
 			-SATUR_LEVEL 64000 -CATALOG_NAME %s.ldac -CATALOG_TYPE FITS_LDAC %s' \
 			%('ima_'+args.new_image.replace('.fits', ''), args.new_image) )
