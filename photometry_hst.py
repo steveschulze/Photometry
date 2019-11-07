@@ -1,4 +1,4 @@
-#!/usr/bin/env pythonw
+#!/usr/bin/env python
 
 __version__ = "8.0"
 __author__ = "Steve Schulze (steve.schulze@weizmann.ac.il)"
@@ -43,11 +43,11 @@ parser.add_argument('--det-thresh',		type=float,
 										default=5)
 
 parser.add_argument('--ap-diam',		type=float,
-										help='Aperture radii in arcsec (one or more value allowed). Default: [0.25, 0.5, 0.75, 1.00]',
-										default=[0.25, 0.50, 0.75, 1.00, 1.50, 2.00], nargs='+')
+										help='Aperture radii in arcsec (one or more value allowed). Default: [0.25, 0.5, 0.75, 1.00, 1.50, 2.00, 3.00]',
+										default=[0.25, 0.50, 0.75, 1.00, 1.50, 2.00, 2.50, 3.00], nargs='+')
 
 parser.add_argument('--ap-inner-annulus',type=float,
-										help='Diameter of the inner annulus of the background. Default: 1.5 x ap-diam',
+										help='Diameter of the inner annulus of the background. Default: 1.25 x ap-diam',
 										default=1.25)
 
 parser.add_argument('--ap-outer-annulus',type=float,
@@ -202,8 +202,10 @@ sources								= phot_routines.sextractor_photometry(
 																		DETECT_THRESH	= args.det_thresh,
 																		FITS 			= args.fits, 
 																		FLAG			= 'centroid',
+																		GAIN			= 'CCDGAIN',
 																		PATH			= args.outdir,
-																		PHOT_APERTURES	= 1.0
+																		PHOT_APERTURES	= 1.0,
+																		LOGGER=logger
 																		)
 
 # Processing header
@@ -212,8 +214,13 @@ hdulist								= fits.open(args.fits)
 hdu_header							= hdulist[0].header
 
 if len(hdulist) 					> 1:
-	hdu_header						+= hdulist[1].header
-	hdu_image						= hdulist[1].data
+	try: 
+		hdulist[1].shape
+		hdu_header					+= hdulist[1].header
+		hdu_image					= hdulist[1].data
+	except:
+		hdu_header					+= hdulist[1].header
+		hdu_image					= hdulist[0].data
 else:
 	hdu_image						= hdulist[0].data
 
@@ -304,10 +311,10 @@ logger.info(msg)
 zeropoint							= table.Table()
 zeropoint['METHOD']					= ['MAG_APER_'+str(x) for x in range(len(apertures))]
 zeropoint['ZP']						= ['{zp:.3f}'.format(zp=photometry['ZP_APER_' +  str(i)][0]) for i in range(len(apertures))]
-zeropoint['ZP_ERRP']				= 'N/A'
-zeropoint['ZP_ERRM']				= 'N/A'
-zeropoint['NUMBER']					= 'N/A'
-zeropoint['r(FWHM)']				= 'N/A'
+zeropoint['ZP_ERRP']				= -99
+zeropoint['ZP_ERRM']				= -99
+zeropoint['NUMBER']					= -99
+zeropoint['r(FWHM)']				= -99
 zeropoint['d(px)']					= apertures / pix2arcsec
 zeropoint['d(arcsec)']				= apertures
 zeropoint['MAG_3UL_GLOB']			= [-2.5*np.log10(3*photometry['BKG_NOISE_' + str(i)][0]) + photometry['ZP_APER_' +  str(i)][0] for i in range(len(apertures))]
