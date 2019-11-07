@@ -4,6 +4,7 @@ from    astroquery.vizier import Vizier
 from    astropy import table
 from    astropy import coordinates as coord
 from    astropy import units as u
+from	misc import bcolors
 import  numpy as np
 import  os
 from    scipy.spatial import cKDTree
@@ -57,6 +58,11 @@ catalog_prop['PanSTARRS']['CATID_OUT']	= catalog_prop['PanSTARRS']['CATID'] + '/
 catalog_prop['PanSTARRS']['FILTER']		= ['g', 'r', 'i', 'z', 'y']
 catalog_prop['PanSTARRS']['SIGMA_HIGH']	= 0
 catalog_prop['PanSTARRS']['SIGMA_LOW']	= 0.2
+
+catalog_prop['GAIA']					= {}
+catalog_prop['GAIA']['KEYWORDS']		= ["RAJ2000", "DEJ2000", "Plx", "e_Plx", "pmRA", "e_pmRA", "pmDE", "e_pmDE"]
+catalog_prop['GAIA']['CATID']			= "I/345"
+catalog_prop['GAIA']['CATID_OUT']		= catalog_prop['GAIA']['CATID'] + '/gaia2'
 
 catalog_prop['UKIDSS']					= {}
 catalog_prop['UKIDSS']['KEYWORDS']		= ['RAJ2000', 'DEJ2000',
