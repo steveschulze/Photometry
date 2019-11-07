@@ -1,6 +1,6 @@
-#!/usr/bin/env pythonw
+#!/usr/bin/env python
 
-__version__ 						= "8.0"
+__version__ 						= "2019-11-04"
 __author__ 							= "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
 import	argparse
@@ -14,7 +14,7 @@ from 	matplotlib import pylab as plt
 import	numpy as np
 import	os
 import	phot_routines
-from	plotsettings_py36 import *
+from	plotsettings import *
 import	sys
 
 # Get input arguments
@@ -69,7 +69,7 @@ parser.add_argument('--ana-thresh',		type	= float,
 
 parser.add_argument('--ap-diam',		type	= float,
 										help	= 'Aperture radii in FWHM (one or more) (default: [1.,2.,3.,4.])',
-										default	= [1.,2.,3.,4.], nargs='+')
+										default	= [1.,1.5,2.,3.], nargs='+')
 
 parser.add_argument('--ap-diam-ul',		type	= float,
 										help	= 'Aperture radii in FWHM (one or more) (default: 2)',
@@ -157,6 +157,8 @@ parser.add_argument('--tol',			type	= float,
 
 # Input parameters
 args								= parser.parse_args()
+args.mag_stdfaint					= float(args.mag_stdfaint)
+args.mag_stdbright					= float(args.mag_stdbright)
 
 # Set up text output
 
@@ -432,7 +434,7 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 		ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
 	
 	# Remove elongated objects (eccentricity < 0.2)
-	ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['B_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
+	#ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['B_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
 
 	# PSF clipping
 	# print (ref_stars)
@@ -461,8 +463,8 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	cut_high						= 0.20
 	cut_low							= 0.001
 
-	ref_stars						= ref_stars[ref_stars['MAGERR_APER'] <= cut_high]
-	ref_stars						= ref_stars[ref_stars['MAGERR_APER'] >= cut_low]
+	# ref_stars						= ref_stars[ref_stars['MAGERR_APER'] <= cut_high]
+	# ref_stars						= ref_stars[ref_stars['MAGERR_APER'] >= cut_low]
 
 	# sigma clipping
 
@@ -473,6 +475,8 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 		ref_stars 					= ref_stars[:args.maxstars]
 
 	logger.info('{numstars} stars remain after pruning'.format(numstars=len(ref_stars)))
+
+	print(ref_stars)
 
 	# Crossmatch the sextractor catalog with the reference catalog
 
@@ -503,6 +507,8 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	matched_standard['MAGERR_APER'].name 	= 'MAGERR_INS'
 	matched_standard['MAG'].name 			= 'MAG_CAT'
 	matched_standard['MAGERR'].name 		= 'MAGERR_CAT'
+
+	print(matched_standard)
 
 	# Define local sequence
 
@@ -549,7 +555,7 @@ else:
 		ref_stars						= ref_stars[ref_stars['FLAGS'] == 0]
 	
 	# Remove elongated objects (eccentricity < 0.2)
-	ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['A_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
+	#ref_stars						= ref_stars[np.sqrt(1 - (ref_stars['A_IMAGE'] / ref_stars['A_IMAGE'])**2) < 0.2 ]
 			
 	# PSF clipping			
 
@@ -616,9 +622,9 @@ else:
 																		FILENAME= filename_stars.replace('.cat', '_loc_cleaned.cat'),
 																		FITS	= args.fits,
 																		LOGGER	= logger,
-																		LOWER	= 10,
+																		LOWER	= 0,
 																		PATH	= args.outdir,
-																		UPPER	= 90)
+																		UPPER	= 100)
 #																		BW		= args.bw)
 
 	matched_standard				= local_sequence['CAT']
@@ -643,7 +649,7 @@ if args.ref_image == '':
 else:		
 	FWHM_median						= fwhm_p50
 
-apertures							= FWHM_median * np.array(args.ap_diam)
+apertures							= 2*FWHM_median * np.array(args.ap_diam)#2*np.array([2, 3, 4, 5])*2.0153891##
 
 # Step 3: Compute zeropoint
 
@@ -668,7 +674,7 @@ phot_stars							= phot_routines.sextractor_photometry(
 																		LOGGER			= logger,
 																		LOGLEVEL		= args.sex_loglevel,
 																		PATH			= args.outdir,
-																		PHOT_APERTURES	= 2*np.array(args.ap_diam)*FWHM_median,
+																		PHOT_APERTURES	= apertures,#2*np.array(args.ap_diam)*FWHM_median,
 																		REF_FILE		= args.ref_image)
 
 msg									= 'Compute zeropoint'
@@ -710,7 +716,7 @@ phot_all							= phot_routines.sextractor_photometry(
 																		LOGGER			= logger,
 																		LOGLEVEL		= args.sex_loglevel,
 																		PATH			= args.outdir,
-																		PHOT_APERTURES	= 2*np.array(args.ap_diam)*FWHM_median,
+																		PHOT_APERTURES	= apertures,#2*np.array(args.ap_diam)*FWHM_median,
 																		REF_FILE		= args.ref_image)
 
 phot_science						= phot_routines.sextractor_photometry(
@@ -729,7 +735,7 @@ phot_science						= phot_routines.sextractor_photometry(
 																		LOGGER			= logger,
 																		LOGLEVEL		= args.sex_loglevel,
 																		PATH			= args.outdir,
-																		PHOT_APERTURES	= 2*np.array(args.ap_diam)*FWHM_median,
+																		PHOT_APERTURES	= apertures,#2*np.array(args.ap_diam)*FWHM_median,
 																		REF_FILE		= args.ref_image)
 
 msg									= 'Post-process Sextractor output'
@@ -793,7 +799,7 @@ if len(phot_science)				== 0:
 			forced_phot['MAGERRM_APER_' + str(i)] 	= np.sqrt(forced_phot['MAGERRM_APER_' + str(i)][0]**2 + summary_zeropoint['ZP_ERRM'][summary_zeropoint['METHOD'] == 'MAG_APER_'+str(i)][0]**2)
 
 else:
-	forced_phot						= None
+	forced_phot						= []
 
 msg									= 'Convert instrumental to calibrated magnitudes'
 print(bcolors.OKGREEN + bcolors.BOLD + '\n' + msg + bcolors.ENDC)
@@ -803,7 +809,7 @@ for key in [x for x in phot_science.keys() if 'MAG_' in x]:
 
 	# Calibrate magnitudes
 
-	if forced_phot == None:
+	if len(forced_phot) == 0:
 
 		phot_science[key]									= phot_science[key] 	+ summary_zeropoint['ZP'][summary_zeropoint['METHOD'] == key]
 		phot_science[key.replace('MAG_', 'MAGERRP_')]		= np.sqrt(phot_science[key.replace('MAG_', 'MAGERRP_')]**2 + summary_zeropoint['ZP_ERRP'][summary_zeropoint['METHOD'] == key]**2)
@@ -832,9 +838,9 @@ j									= 0
 for i in range(len(summary_zeropoint['METHOD'])):
 	if 'APER' in summary_zeropoint['METHOD'][i]:
 		summary_zeropoint['r(FWHM)'][i]		= args.ap_diam[j]
-		j							+= 1
+		j									+= 1
 
-summary_zeropoint['diam(px)']				= 2 * summary_zeropoint['r(FWHM)'] * FWHM_median
+summary_zeropoint['diam(px)']					= summary_zeropoint['r(FWHM)'] * FWHM_median#[0, 0, apertures[0], apertures[1], apertures[2], apertures[3]]#
 
 summary_zeropoint['MAG_3UL_GLOB']			= np.nan*len(summary_zeropoint)
 summary_zeropoint['AP_cor']					= summary_zeropoint['ZP'][-1] - summary_zeropoint['ZP'] 
