@@ -2,6 +2,8 @@
 
 Tools to align images, improve astrometry, perform aperture photometry and retrieve photometry catalogues.
 
+Latest revision: 7 November 2019
+
 ## Prerequisites
 
 Python: 3.6
@@ -136,9 +138,10 @@ Requires: ```astroquery```, ```sewpy```
 usage: field_calibration.py [-h] --ra RA --dec DEC [--radius RADIUS]
                             [--outdir OUTDIR] [--type TYPE]
 
-Retrieve photometric catalogues. 2MASS, PS1 and SDSS are the input sources.
-Bessel catalogues are generated through colour equations. PS1 and SDSS cats
-are in the AB system, whereas Bessel and 2MASS cats are in the Vega system.
+Retrieve photometric catalogues. 2MASS, PS1, SDSS and SkyMapper are the input 
+catalogues. Bessel catalogues are generated through colour equations. PS1 and
+SDSS cats are in the AB system, whereas Bessel and 2MASS cats are in the Vega
+system.
 
 optional arguments:
   -h, --help       show this help message and exit
@@ -161,9 +164,9 @@ python field_calibration.py --ra 173.423125 --dec 0.725972
 
 #### How does it work?
 
-The photometric catalogues are build from the 2MASS point source catalogues and SDSS/DR12 source catalogues. The PS1 point source catalogue was build following XXX. PS1 photometry was converted to the SDSS filters using the colour equations in XXX. Bessel photometry was derived following the [Lupton (2004)](http://classic.sdss.org/dr4/algorithms/sdssUBVRITransform.html) colour equations.
+The photometric catalogues are build from the 2MASS point source catalogues and SDSS/DR12 source catalogues. The PS1 point source catalogue was build by crossmatching PS1 with Gaia DR2. PS1 photometry was converted to the SDSS filters using the colour equations in [Finkbeiner et al. (2016)](https://ui.adsabs.harvard.edu/abs/2016ApJ...822...66F/abstract). Bessel photometry was derived following the [Lupton (2004)](http://classic.sdss.org/dr4/algorithms/sdssUBVRITransform.html) colour equations.
 
-The files will be called ```PS1_PS1_FILTER.ascii```, ```PS1_SDSS_FILTER.ascii```, ```PS1_BESSEL_FILTER.ascii```, ```SDSS_FILTER.ascii```, ```SDSS_BESSEL_FILTER.ascii``` and ```2MASS_FILTER.ascii```. The columns in each file are: col1 = ra, col2 = dec, col3 = mag, and col4 = sigma_mag.
+The files will be called ```PS1_PS1_FILTER.ascii```, ```PS1_SDSS_FILTER.ascii```, ```PS1_BESSEL_FILTER.ascii```, ```SDSS_FILTER.ascii```, ```SDSS_BESSEL_FILTER.ascii```, ```SkyMapper_SDSS_FILTER.ascii```, ```SkyMapper_BESSEL_FILTER.ascii```, and ```2MASS_FILTER.ascii```. The columns in each file are: col1 = ra, col2 = dec, col3 = mag, and col4 = sigma_mag.
 
 ### photometry.py
 
