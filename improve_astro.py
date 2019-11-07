@@ -1,7 +1,5 @@
-#!/usr/bin/env pythonw
-
-__version__ = "2.0"
-__author__ = "Steve Schulze (steve.schulze@weizmann.ac.il)"
+#__version__ = "2.0"
+#__author__ = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
 import	argparse
 from 	astropy.io import ascii, fits
