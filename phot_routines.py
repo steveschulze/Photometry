@@ -15,7 +15,7 @@ from	misc import bcolors
 import	numpy as np
 import	os
 import	photutils
-from	plotsettings_py36 import *
+from	plotsettings import *
 import	pysynphot as pyS
 import	random
 from	scipy import stats as stats_scipy
@@ -167,12 +167,26 @@ def	get_gain(FITS, KEYWORD, LOGGER):
 	else:
 		try:
 			hdu		= fits.open(FITS)
-			header	= [x.header for x in hdu]
-			return header[KEYWORD]
+			if len(hdu) == 1:
+				header = hdu[0].header
+			elif len(hdu) > 1:
+				header = hdu[0].header + hdu[1].header
+			elif len(hdu) > 2:
+				header = hdu[0].header + hdu[1].header + hdu[2].header
+
+			if 'CCDGAIN' in header.keys():
+				key_gain			= 'CCDGAIN'
+			elif 'ADCGAIN' in header.keys():
+				key_gain			= 'ADCGAIN'
+			elif 'ATODGAIN' in header.keys():
+				key_gain			= 'ATODGAIN'
+
+			return header[key_gain]
+
 		except:
 			msg		= 'GAIN keyword ({gain}) not found'.format(gain=KEYWORD)
 			print(bcolors.BOLD + bcolors.FAIL + '\n{}\n'.format(msg) + bcolors.ENDC)
-			logger.error()
+			LOGGER.error(msg)
 			sys.exit()
 
 def hst_aperture_photometry(FITS, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, PIX2ARCSEC, RMS, FA=1):
@@ -185,12 +199,16 @@ def hst_aperture_photometry(FITS, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, 
 
 	hdulist					= fits.open(FITS)
 
-	if len(hdulist) > 1:
-		hdu_header			= hdulist[0].header
-		hdu_header			+= hdulist[1].header
-		hdu_data			= hdulist[1].data
+	hdu_header				= hdulist[0].header
+	if len(hdulist) 		> 1:
+		try: 
+			hdulist[1].shape
+			hdu_header		+= hdulist[1].header
+			hdu_data		= hdulist[1].data
+		except:
+			hdu_header		+= hdulist[1].header
+			hdu_data		= hdulist[0].data
 	else:
-		hdu_header			= hdulist[0].header
 		hdu_data			= hdulist[0].data
 
 	# sources
@@ -207,13 +225,29 @@ def hst_aperture_photometry(FITS, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, 
 	# Astrodrizzled images are in units electrons/s
 	# https://photutils.readthedocs.io/en/stable/api/photutils.utils.calc_total_error.html#photutils.utils.calc_total_error
 
-	effective_gain			= hdu_header['EXPTIME'] * hdu_header['CCDGAIN']
+	if 'CCDGAIN' in hdu_header.keys():
+		key_gain			= 'CCDGAIN'
+	elif 'ADCGAIN' in hdu_header.keys():
+		key_gain			= 'ADCGAIN'
+	elif 'ATODGAIN' in hdu_header.keys():
+		key_gain			= 'ATODGAIN'
+	else:
+		msg					= 'GAIN keyword not found.'
+		logger.error(msg)
+		print(bcolors.BOLD + bcolors.FAIL + msg + bcolors.ENDC)
+		sys.exit()
+
+	effective_gain			= hdu_header['EXPTIME'] * hdu_header[key_gain]
 
 	# Correlated noise correction factor
 	# http://www.ifa.hawaii.edu/~rgal/science/sextractor_notes.html
 
 	pixfrac					= hdu_header['D001PIXF']
-	native_scale			= hst_scale(hdu_header['INSTRUME'], hdu_header['APERTURE'])
+	try:
+		native_scale		= hst_scale(hdu_header['INSTRUME'], hdu_header['APERTURE'])
+	except:
+		native_scale		= hst_scale(hdu_header['INSTRUME'], None)
+
 	scale					= PIX2ARCSEC/native_scale
 
 	fa						= pow( (scale/pixfrac) * (1.  - (scale / 3 / pixfrac)), 2) if scale < pixfrac else pow(1 - pixfrac / 3 / scale, 2)
@@ -230,22 +264,28 @@ def hst_make_cutout(FITS, COORD_OBS, COORD_EXP, RADII, RADII_INNERANNULUS, RADII
 
 	hdulist			= fits.open(FITS)
 
-	if len(hdulist) == 1:
-		header		= hdulist[0].header
-		image		= hdulist[0].data
+	header			= hdulist[0].header
+
+	if len(hdulist) > 1:
+		try: 
+			hdulist[1].shape
+			image	= hdulist[1].data
+		except:
+			image	= hdulist[0].data
 	else:
-		header		= hdulist[1].header
-		image		= hdulist[1].data
+		image		= hdulist[0].data
+
+	image_shape		= np.shape(image)
 
 	# Plotsettings
 
 	halfwidth		= 50
 
 	xmin			= int(COORD_OBS[0])-halfwidth if int(COORD_OBS[0])-halfwidth >= 0 else 0
-	xmax			= int(COORD_OBS[0])+halfwidth if int(COORD_OBS[0])+halfwidth <= header['NAXIS1'] else header['NAXIS1']
+	xmax			= int(COORD_OBS[0])+halfwidth if int(COORD_OBS[0])+halfwidth <= image_shape[0] else image_shape[0]
 
 	ymin			= int(COORD_OBS[1])-halfwidth if int(COORD_OBS[1])-halfwidth >= 0 else 0
-	ymax			= int(COORD_OBS[1])+halfwidth if int(COORD_OBS[1])+halfwidth <= header['NAXIS2'] else header['NAXIS2']
+	ymax			= int(COORD_OBS[1])+halfwidth if int(COORD_OBS[1])+halfwidth <= image_shape[1] else image_shape[1]
 
 	# Truncate image
 
@@ -320,8 +360,8 @@ def hst_cog(FITS, POSITIONS, INNERANNULUS, OUTERANNULUS, PIX2ARCSEC, RMS, OUTDIR
 	mags_errp_det		= mags_errp[mask_det]
 	mags_errm_det		= mags_errm[mask_det]
 
-	cog_data			= table.Table([apertures, mags, mags_errp, mags_errm], names=('DIAMETER', 'MAG', 'MAGERRP', 'MAGERRM'))
-	#ascii.write(cog_data, OUTDIR + FITS.replace('.fits', '_cog_data.ascii'), overwrite=True)
+	cog_data			= table.Table([apertures, [np.round(x[0], 3) for x in mags], [np.round(x[0], 3) for x in mags_errp], [np.round(x[0], 3) for x in mags_errm]], names=('DIAMETER', 'MAG', 'MAGERRP', 'MAGERRM'))
+	ascii.write(cog_data, OUTDIR + FITS.replace('.fits', '_cog_data.ascii'), overwrite=True, format='no_header')
 	
 	# MonteCarlo
 
@@ -392,6 +432,9 @@ def hst_scale(INSTRUMENT, MODE):
 			print(bcolors.FAIL + 'MODE {mode} not recognised for {instrument}'.format(mode=MODE, instrument=INSTRUMENT) + bcolors.ENDC)
 			sys.exit()
 
+	elif INSTRUMENT 	== 'WFPC2':
+		return 0.10
+
 	elif INSTRUMENT == 'WFC3':
 		# http://www.stsci.edu/hst/wfc3/documents/handbooks/currentDHB/wfc3_dhb.pdf
 		if 'UVIS' in MODE:
@@ -424,46 +467,69 @@ def hst_zeropoint (HEADER, DIAMETER):
 	try:
 		filter				= HEADER['FILTER1'] if 'CLEAR' in HEADER['FILTER2'] else HEADER['FILTER2']
 	except:
-		filter				= HEADER['FILTER']
+		try:
+			filter				= HEADER['FILTER']
+		except:
+			filter				= HEADER['FILTNAM1']
 
 	DIAMETER				= [x if x < 4 else 4 for x in DIAMETER]
 
-	try:
-		bandprops			= [pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
-												aperture=x,
-												photmode=HEADER['PHOTMODE'].replace(' ', ','),
-												))
-												for x in DIAMETER]
+	if HEADER['INSTRUME'].upper() not in ['WFPC2', 'NICMOS']:
 
-		bandprops_ref		= pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
-												aperture=4.0,
-												photmode=HEADER['PHOTMODE'].replace(' ', ',')
-												))
-	except:
-		bandprops			= [pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
-												aperture=x,
-												detector=HEADER['APERTURE'],
-												filter=filter,
-												instrument=HEADER['INSTRUME'],
-												mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
-												))
-												for x in DIAMETER]
+		try:
+			bandprops			= [pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
+													aperture=x,
+													photmode=HEADER['PHOTMODE'].replace(' ', ','),
+													))
+													for x in DIAMETER]
 
-		bandprops_ref		= pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
-												aperture=4.0,
-												detector=HEADER['APERTURE'],
-												filter=filter,
-												instrument=HEADER['INSTRUME'],
-												mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
-												))
+			bandprops_ref		= pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
+													aperture=4.0,
+													photmode=HEADER['PHOTMODE'].replace(' ', ',')
+													))
+		except:
+			bandprops			= [pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
+													aperture=x,
+													detector=HEADER['APERTURE'],
+													filter=filter,
+													instrument=HEADER['INSTRUME'],
+													mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
+													))
+													for x in DIAMETER]
 
-	ap_correction			= np.ones(len(DIAMETER))*1.0
+			bandprops_ref		= pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
+													aperture=4.0,
+													detector=HEADER['APERTURE'],
+													filter=filter,
+													instrument=HEADER['INSTRUME'],
+													mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
+													))
 
-	for i in range(len(DIAMETER)):
-		if DIAMETER[i] < 4.:
-			ap_correction[i]= pyS.Observation(spec_bb, bandprops[i]).countrate() / pyS.Observation(spec_bb, bandprops_ref).countrate()
-		else:
-			ap_correction[i]= 1
+		ap_correction			= np.ones(len(DIAMETER))*1.0
+
+		for i in range(len(DIAMETER)):
+			if DIAMETER[i] < 4.:
+				ap_correction[i]= pyS.Observation(spec_bb, bandprops[i]).countrate() / pyS.Observation(spec_bb, bandprops_ref).countrate()
+			else:
+				ap_correction[i]= 1
+
+	elif HEADER['INSTRUME'].upper() in ['WFPC2', 'NICMOS']:
+
+		print (bcolors.WARNING + 'Aperture correction of the {} camera is not tabulated in the pySynphot.'.format(HEADER['INSTRUME'].upper()))
+		print (                  'The AP correction is -0.1 mag for a circulat aperture with a radius of 0.5".')
+		print (                  'This value needs to be added by hand to the photometry!' + bcolors.ENDC)
+
+		ap_correction			= np.ones(len(DIAMETER))*1.0
+
+	# elif HEADER['INSTRUME'].upper() == 'WFPC2':
+
+	# 	print (bcolors.WARNING + 'Aperture correction of the WFPC2 camera is not tabulated in the pySynphot.')
+	# 	print (                  'The AP correction is -0.1 mag for a circulat aperture with a radius of 0.5".')
+	# 	print (                  'This value needs to be added by hand to the photometry!' + bcolors.ENDC)
+
+	# 	ap_correction			= 1
+
+
 
 	ap_correction_mag		= -2.5 * np.log10(ap_correction)
 
@@ -938,8 +1004,6 @@ def make_poststamp(FITS, COORD_EXP, COORD_OBS, PATH=''):
 
 	return None
 
-import time
-
 def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTOMETRY, ZEROPOINT_SUMMARY, OFFSET, LOGGER):
 
 	"""
@@ -1060,11 +1124,11 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
 		catalog.add_row(['DISTANCE (px)',		np.nan, np.nan, np.nan, 'px'])
 		catalog.add_row(['DISTANCE (arcsec)',	np.nan, np.nan, np.nan, 'arcsec'])
 
-		for key in ['X_IMAGE', 'Y_IMAGE']:
-			catalog.add_row([key+'_OBS',		np.nan, np.nan, np.nan, '...'])
+		# for key in ['X_IMAGE', 'Y_IMAGE']:
+		# 	catalog.add_row([key+'_OBS',		np.nan, np.nan, np.nan, 'px'])
 
-		for key in ['DISTANCE (px)', 'DISTANCE (arcsec)']:
-			catalog.add_row([key,				np.nan, np.nan, np.nan, '...'])
+		# for key in ['DISTANCE (px)', 'DISTANCE (arcsec)']:
+		# 	catalog.add_row([key,				np.nan, np.nan, np.nan, '...'])
 
 		# Iterate over all apertures
 
@@ -1081,9 +1145,9 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
 				flux		= '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNU_APER_' 		+ str(i)][0])
 				flux_err	= '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNUERR_APER_'	+ str(i)][0])
 
-				catalog.add_row(['MAG_APER_PHOTUTILS', 			mag,	mag_errp,	mag_errm, 'mag'])
-				catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA',	mag,	np.nan,		np.nan,   'mag'])
-				catalog.add_row(['FNU_APER_PHOTUTILS', 			flux,	flux_err,	flux_err, 'microJy'])
+				catalog.add_row(['MAG_APER_PHOTUTILS', 			mag,		mag_errp,	mag_errm, 'mag'])
+				catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA',	mag_3sigma,	np.nan,		np.nan,   'mag'])
+				catalog.add_row(['FNU_APER_PHOTUTILS', 			flux,		flux_err,	flux_err, 'microJy'])
 
 			else:
 
@@ -1094,9 +1158,9 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
 				flux		= '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNU_APER_'		+str(i)][0])
 				flux_err	= '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNUERR_APER_'	+str(i)][0])
 
-				catalog.add_row(['MAG_APER_PHOTUTILS', 			mag,	mag_errp,	mag_errm, 'mag'])
-				catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA',	mag,	np.nan,		np.nan,   'mag'])
-				catalog.add_row(['FNU_APER_PHOTUTILS', 			flux,	flux_err,	flux_err, 'microJy'])
+				catalog.add_row(['MAG_APER_PHOTUTILS_'+str(i), 			mag,		mag_errp,	mag_errm, 'mag'])
+				catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA_'+str(i),	mag_3sigma,	np.nan,		np.nan,   'mag'])
+				catalog.add_row(['FNU_APER_PHOTUTILS_'+str(i), 			flux,		flux_err,	flux_err, 'microJy'])
 
 			i 				+= 1
 
