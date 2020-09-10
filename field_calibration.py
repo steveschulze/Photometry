@@ -116,6 +116,40 @@ if args.type == 'all' or args.type == 'optical':
 			filename	= args.outdir + 'SDSS_BESSEL_' + filter + '.cat'
 			ascii.write(result[['RA_ICRS', 'DE_ICRS', filter+'_BESSEL', filter+'_BESSEL_ERR']][mask_good], filename, overwrite=True, format='no_header')
 
+		# Convert to GROND system
+
+		result 			= cat_tools.SDSS_to_GROND(result)
+
+		# Formatting
+
+		for key in [x for x in result.keys() if 'GROND' in x]:
+			result[key].format= '.4f'
+
+		# Write ZTF catalogues
+
+		for filter in ['g', 'r', 'i', 'z']:
+
+			mask_good	= np.where((result[filter + '_GROND_ERR'] > 0.) & (result[filter + '_GROND_ERR'] < 0.3))[0]
+			filename	= args.outdir + 'SDSS_GROND_' + filter + '.cat'
+			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_GROND', filter+'_GROND_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
+		# Convert to DES system
+
+		result 			= cat_tools.SDSS_to_DES(result)
+
+		# Formatting
+
+		for key in [x for x in result.keys() if 'DES' in x]:
+			result[key].format= '.4f'
+
+		# Write ZTF catalogues
+
+		for filter in ['g', 'r', 'i', 'z']:
+
+			mask_good	= np.where((result[filter + '_DES_ERR'] > 0.) & (result[filter + '_DES_ERR'] < 0.3))[0]
+			filename	= args.outdir + 'SDSS_DES_' + filter + '.cat'
+			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_DES', filter+'_DES_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
 	except:
 		print(bcolors.FAIL + 'Field not covered by SDSS or VizieR query failed.' + bcolors.ENDC)
 		pass
@@ -225,6 +259,57 @@ if args.type == 'all' or args.type == 'optical':
 
 			filename	= args.outdir + 'PS1_BESSEL_' + filter + '.cat'
 			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_BESSEL', filter+'_BESSEL_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
+		# Convert to ZTF system
+
+		result 			= cat_tools.PS1_to_ZTF(result)
+
+		# Formatting
+
+		for key in [x for x in result.keys() if 'ZTF' in x]:
+			result[key].format= '.4f'
+
+		# Write ZTF catalogues
+
+		for filter in ['g', 'r']:
+
+			mask_good	= np.where((result[filter + '_ZTF_ERR'] > 0.) & (result[filter + '_ZTF_ERR'] < 0.3))[0]
+			filename	= args.outdir + 'PS1_ZTF_' + filter + '.cat'
+			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_ZTF', filter+'_ZTF_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
+		# Convert to GROND system
+
+		result 			= cat_tools.SDSS_to_GROND(result)
+
+		# Formatting
+
+		for key in [x for x in result.keys() if 'GROND' in x]:
+			result[key].format= '.4f'
+
+		# Write ZTF catalogues
+
+		for filter in ['g', 'r', 'i', 'z']:
+
+			mask_good	= np.where((result[filter + '_GROND_ERR'] > 0.) & (result[filter + '_GROND_ERR'] < 0.3))[0]
+			filename	= args.outdir + 'PS1_GROND_' + filter + '.cat'
+			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_GROND', filter+'_GROND_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
+		# Convert to DES system
+
+		result 			= cat_tools.SDSS_to_DES(result)
+
+		# Formatting
+
+		for key in [x for x in result.keys() if 'DES' in x]:
+			result[key].format= '.4f'
+
+		# Write ZTF catalogues
+
+		for filter in ['g', 'r', 'i', 'z']:
+
+			mask_good	= np.where((result[filter + '_DES_ERR'] > 0.) & (result[filter + '_DES_ERR'] < 0.3))[0]
+			filename	= args.outdir + 'PS1_DES_' + filter + '.cat'
+			ascii.write(result[['RAJ2000', 'DEJ2000', filter+'_DES', filter+'_DES_ERR']][mask_good], filename, overwrite=True, format='no_header')
 
 	except:
 		print(bcolors.WARNING + 'Field not covered by PS1' + bcolors.ENDC)

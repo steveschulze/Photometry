@@ -138,9 +138,7 @@ Requires: ```astroquery```, ```sewpy```
 usage: field_calibration.py [-h] --ra RA --dec DEC [--radius RADIUS]
                             [--outdir OUTDIR] [--type TYPE]
 
-Retrieve photometric catalogues. 2MASS, PS1, SDSS and SkyMapper are the input 
-catalogues. Bessel catalogues are generated through colour equations. PS1 and
-SDSS cats are in the AB system, whereas Bessel and 2MASS cats are in the Vega
+Retrieve photometric catalogues. 2MASS, PS1, SDSS and SkyMapper are the input catalogues. Catalogues in the Bessel, DES, GROND and ZTF system are generated through colour equations. DES, GROND, PS1, SDSS and ZTF cats are in the AB system. Bessel and 2MASS cats are in the Vega
 system.
 
 optional arguments:
@@ -164,7 +162,7 @@ python field_calibration.py --ra 173.423125 --dec 0.725972
 
 #### How does it work?
 
-The photometric catalogues are build from the 2MASS point source catalogues and SDSS/DR12 source catalogues. The PS1 point source catalogue was build by crossmatching PS1 with Gaia DR2. PS1 photometry was converted to the SDSS filters using the colour equations in [Finkbeiner et al. (2016)](https://ui.adsabs.harvard.edu/abs/2016ApJ...822...66F/abstract). Bessel photometry was derived following the [Lupton (2004)](http://classic.sdss.org/dr4/algorithms/sdssUBVRITransform.html) colour equations.
+The photometric catalogues are build from the 2MASS point source catalogues and SDSS/DR12 source catalogues. The PS1 point source catalogue was build by crossmatching PS1 with Gaia DR2. PS1 photometry was converted to the SDSS filters using the colour equations in [Finkbeiner et al. (2016)](https://ui.adsabs.harvard.edu/abs/2016ApJ...822...66F/abstract) and to the ZTF system using [Medford et al. (2020)](https://iopscience.iop.org/article/10.3847/2515-5172/ab7f3c). Bessel photometry was derived following the [Lupton (2004)](http://classic.sdss.org/dr4/algorithms/sdssUBVRITransform.html) colour equations. SDSS photometry were converted to the DES and GROND system using the color equations from [Drlica-Wagner et al. (2018)](https://iopscience.iop.org/article/10.3847/1538-4365/aab4f5#apjsaab4f5app1-4?gridset=show), respectively and [Greiner et al.](https://www.mpe.mpg.de/~jcg/GROND/calibration.html), respectively.
 
 The files will be called ```PS1_PS1_FILTER.ascii```, ```PS1_SDSS_FILTER.ascii```, ```PS1_BESSEL_FILTER.ascii```, ```SDSS_FILTER.ascii```, ```SDSS_BESSEL_FILTER.ascii```, ```SkyMapper_SDSS_FILTER.ascii```, ```SkyMapper_BESSEL_FILTER.ascii```, and ```2MASS_FILTER.ascii```. The columns in each file are: col1 = ra, col2 = dec, col3 = mag, and col4 = sigma_mag.
 

@@ -8,6 +8,7 @@ from	misc import bcolors
 import  numpy as np
 import  os
 from    scipy.spatial import cKDTree
+import  sys
 
 # Catalogue properties
 
@@ -157,6 +158,50 @@ def PS1_to_SDSS(DATA):
 
 	return DATA
 
+def PS1_to_ZTF(DATA):
+
+	# Ref: https://iopscience.iop.org/article/10.3847/2515-5172/ab7f3c
+
+	DATA['g_ZTF'] = DATA['g_SDSS'] + 0.055 * (DATA['g_SDSS'] - DATA['r_SDSS']) - 0.012
+	DATA['r_ZTF'] = DATA['r_SDSS'] - 0.087 * (DATA['g_SDSS'] - DATA['r_SDSS']) - 0.0035
+
+	DATA['g_ZTF_ERR'] = np.sqrt(DATA['g_SDSS_ERR']**2 + (0.055*DATA['g_SDSS_ERR'])**2 + (0.055*DATA['r_SDSS_ERR'])**2)
+	DATA['r_ZTF_ERR'] = np.sqrt(DATA['r_SDSS_ERR']**2 + (0.087*DATA['g_SDSS_ERR'])**2 + (0.087*DATA['r_SDSS_ERR'])**2)
+
+	return DATA
+
+def SDSS_to_DES(DATA):
+
+	# Ref: https://iopscience.iop.org/article/10.3847/1538-4365/aab4f5#apjsaab4f5app1-4?gridset=show Appendix A.4
+
+	DATA['g_DES'] = DATA['g_SDSS'] - 0.104 * (DATA['g_SDSS'] - DATA['r_SDSS']) + 0.01
+	DATA['r_DES'] = DATA['r_SDSS'] - 0.102 * (DATA['g_SDSS'] - DATA['r_SDSS']) + 0.02
+	DATA['i_DES'] = DATA['i_SDSS'] - 0.256 * (DATA['i_SDSS'] - DATA['z_SDSS']) + 0.02
+	DATA['z_DES'] = DATA['z_SDSS'] - 0.086 * (DATA['i_SDSS'] - DATA['z_SDSS']) + 0.01
+
+	DATA['g_DES_ERR'] = np.sqrt( DATA['g_SDSS_ERR']**2 + 0.104**2 * (DATA['g_SDSS_ERR']**2 + DATA['r_SDSS_ERR']**2) )
+	DATA['r_DES_ERR'] = np.sqrt( DATA['r_SDSS_ERR']**2 + 0.102**2 * (DATA['g_SDSS_ERR']**2 + DATA['r_SDSS_ERR']**2) )
+	DATA['i_DES_ERR'] = np.sqrt( DATA['i_SDSS_ERR']**2 + 0.256**2 * (DATA['i_SDSS_ERR']**2 + DATA['z_SDSS_ERR']**2) )
+	DATA['z_DES_ERR'] = np.sqrt( DATA['z_SDSS_ERR']**2 + 0.086**2 * (DATA['i_SDSS_ERR']**2 + DATA['z_SDSS_ERR']**2) )
+
+	return DATA
+
+def SDSS_to_GROND(DATA):
+
+	# Ref: https://www.mpe.mpg.de/~jcg/GROND/calibration.html
+
+	DATA['g_GROND'] = DATA['g_SDSS'] - 0.015 * (DATA['g_SDSS'] - DATA['r_SDSS']) + 0.006
+	DATA['r_GROND'] = DATA['r_SDSS'] - 0.012 * (DATA['r_SDSS'] - DATA['i_SDSS']) + 0.004
+	DATA['i_GROND'] = DATA['i_SDSS'] - 0.113 * (DATA['r_SDSS'] - DATA['i_SDSS']) + 0.031
+	DATA['z_GROND'] = DATA['z_SDSS'] + 0.009 * (DATA['i_SDSS'] - DATA['z_SDSS']) + 0.003
+
+	DATA['g_GROND_ERR'] = np.sqrt( DATA['g_SDSS_ERR']**2 + 0.015**2 * (DATA['g_SDSS_ERR']**2 + DATA['r_SDSS_ERR']**2) )
+	DATA['r_GROND_ERR'] = np.sqrt( DATA['r_SDSS_ERR']**2 + 0.012**2 * (DATA['r_SDSS_ERR']**2 + DATA['i_SDSS_ERR']**2) )
+	DATA['i_GROND_ERR'] = np.sqrt( DATA['i_SDSS_ERR']**2 + 0.113**2 * (DATA['r_SDSS_ERR']**2 + DATA['i_SDSS_ERR']**2) )
+	DATA['z_GROND_ERR'] = np.sqrt( DATA['z_SDSS_ERR']**2 + 0.009**2 * (DATA['i_SDSS_ERR']**2 + DATA['z_SDSS_ERR']**2) )
+
+	return DATA
+
 def SDSS_to_Bessel(DATA):
 
 	# http://www.sdss3.org/dr8/algorithms/sdssUBVRITransform.php
@@ -239,7 +284,7 @@ def retrieve_photcat(OBJECT_PROP, PHOTCAT, CATPROP, FILENAME=None, ROW_LIMIT=-1,
 			ascii.write(result[[CATPROP[PHOTCAT]['KEYWORDS'][0], CATPROP[PHOTCAT]['KEYWORDS'][1], filter+'mag', 'e_'+filter+'mag']][mask_good], filename, overwrite=True, format='no_header')
 
 		else:
-			print(bcolors.ERROR + 'Filter {filter} not in catalogue {catalog}.'.format(filter=filter, catalog=PHOTCAT) + bcolors.ENDC)
+			print(bcolors.FAIL + 'Filter {filter} not in catalogue {catalog}.'.format(filter=filter, catalog=PHOTCAT) + bcolors.ENDC)
 			sys.exit()
 
 
