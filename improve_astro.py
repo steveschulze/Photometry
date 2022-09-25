@@ -1,28 +1,26 @@
-#__version__ = "2.0"
-#__author__ = "Steve Schulze (steve.schulze@weizmann.ac.il)"
+#__version__ = "2022-09-25"
+#__author__ = "Steve Schulze (steve.schulze@fysik.su.se)"
 
-import	argparse
-from 	astropy.io import ascii, fits
-import 	astropy.coordinates as coord
-import 	astropy.units as u
-import	fits_tools
-from 	misc import bcolors
-import	numpy as np
-import	glob
-import	os
-import	subprocess
-import 	sip_to_pv
+import    argparse
+from      astropy.io import fits
+import    copy
+import    fits_tools
+from      misc import bcolors
+import    os
+import    subprocess
+import    sip_to_pv
+import    sys
 
 # Prepare sextractor files
 
-default_conv					= ("""CONV NORM
+default_conv                    = ("""CONV NORM
 # 3x3 ``all-ground'' convolution mask with FWHM = 2 pixels.
 1 2 1
 2 4 2
 1 2 1
 """)
 
-default_nnw						= ("""NNW
+default_nnw                        = ("""NNW
 # Neural Network Weights for the SExtractor star/galaxy classifier (V1.3)
 # inputs:       9 for profile parameters + 1 for seeing.
 # outputs:      ``Stellarity index'' (0.0 to 1.0)
@@ -52,7 +50,7 @@ default_nnw						= ("""NNW
  1.00000e+00
 """)
 
-default_param					= ("""NUMBER                   # Running object number
+default_param                    = ("""NUMBER                   # Running object number
 XWIN_IMAGE               # Windowed position estimate along x                        [pixel]
 YWIN_IMAGE               # Windowed position estimate along y                        [pixel]
 ERRX2WIN_IMAGE           # Variance of position along x                              [pixel**2]
@@ -86,7 +84,7 @@ PETRO_RADIUS             # Petrosian apertures in units of A or B
 SNR_WIN                  # Signal-to-noise ratio in a Gaussian window
 """)
 
-default_sex						= (
+default_sex                        = (
 """# Default configuration file for SExtractor 2.12.4
 # EB 2010-10-10
 #
@@ -193,116 +191,184 @@ XSL_URL          file:///usr/local/share/sextractor/sextractor.xsl
 
 """)
 
-# Get input arguments
+def get_parser():
 
-parser							= argparse.ArgumentParser(description='Improving WCS calibration with astrometry.net and converting SIP terms to Sextractor format.')
+    parser             = argparse.ArgumentParser(description='Improving WCS calibration with astrometry.net and converting SIP terms to Sextractor format.')
 
-# Object properties
+    parser.add_argument('--fits',
+                        type     = str,
+                        help     = 'file name (Required)',
+                        required = True
+                        )
 
-parser.add_argument('--fits',			type	= str,
-										help	= 'File name (Required)',
-										required= True)
+    parser.add_argument('--ra',
+                        type     = str,
+                        help     = 'RA(J2000) of the Object (HMS and DD system allowed). Note: if declination is negative, write " -12:20:20.2").',
+                        required = True
+                        )
 
-parser.add_argument('--ra',				type	= str,
-										help	= 'RA(J2000) of the Object (HMS and DD system allowed). Note: if declination is negative, write " -12:20:20.2"). (Required)',
-										required= True)
+    parser.add_argument('--dec',
+                        type     = str,
+                        help     = 'Dec (J2000) of the Object (HMS and DD system allowed).',
+                        required = True
+                        )
 
-parser.add_argument('--dec', 			type	= str,
-										help	= 'Dec (J2000) of the Object (HMS and DD system allowed). (Required)',
-										required= True)
+    parser.add_argument('--radius',
+                        type    = float,
+                        help    = 'only search in indexes within \'radius\' of the field center (unit: deg; default: 0.125 deg)',
+                        default = 0.125
+                        )
 
-parser.add_argument('--radius', 		type	= float,
-										help	= 'only search in indexes within \'radius\' of the field center (unit: deg; default: 0.125 deg)',
-										default = 0.125)
+    parser.add_argument('--downsample',
+                        type    = int,
+                        help    = 'downsample the image by factor <int> before running source extraction (default: 2)',
+                        default = 2
+                        )
 
-parser.add_argument('--downsample',		type	= int,
-										help	= 'downsample the image by factor <int> before running source extraction (default: 2)',
-										default = 2)
+    parser.add_argument('--small-field',
+                        action  = 'store_true',
+                        help    = 'Set this option if the field is smaller than 5 arcmin',
+                        default = False)
 
-parser.add_argument('--tweak-order',	type	= int,
-										help	= 'Polynomial order of SIP WCS corrections (default: 2)',
-										default = 2)
+    parser.add_argument('--tweak-order',
+                        type    = int,
+                        help    = 'Polynomial order of SIP WCS corrections (default: 2)',
+                        default = 2
+                        )
 
-args							= parser.parse_args()
+    return parser
 
-# Start
+def main(args):
 
-# Setup astrometry.net
-
-output 							= open('default.conv', 'w')
-output.write(default_conv)
-output.close()
-
-output 							= open('default.nnw', 'w')
-output.write(default_nnw)
-output.close()
-
-output 							= open('default.param', 'w')
-output.write(default_param)
-output.close()
-
-output 							= open('default.sex', 'w')
-output.write(default_sex)
-output.close()
-
-sex_cfg							= 'default.sex'
-
-log_astro						= open('astro.log', 'w')
-log_sip2pv						= open('astro_sip2pv.log', 'w')
-
-#for i in range(1):
-
-ra_dd, dec_dd					= fits_tools.convert_hms_dd(args.ra, args.dec)
-
-print(bcolors.HEADER + 'Process Image' + bcolors.ENDC)
-
-# Check if fits file complies to standard
-hdu								= fits.open(args.fits)
-hdu_data						= hdu[0].data
-hdu_header						= hdu[0].header
-fits.writeto(args.fits, hdu_data, hdu_header, overwrite=True, output_verify='silentfix')
-
-# Improve astro
-
-sexcat							= args.fits.replace('.fits','.sexcat')
-
-cmd								= ['solve-field', '--no-plots', \
-								'--sextractor-config', sex_cfg, \
-								'--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE', \
-								'--sort-column', 'FLUX_AUTO', \
-								args.fits, \
-								'--tweak-order', str(args.tweak_order), \
-								'--uniformize', str(0), \
-								'--cpulimit', str(60), \
-								'--ra', str(ra_dd), '--dec', str(dec_dd), '--radius', str(args.radius), \
-								'--new-fits', args.fits.replace('.fits', '_wcs.fits'), '--overwrite', '--downsample', str(args.downsample)]
+    parser             = get_parser()
+    args               = parser.parse_args(args)
 
 
-print (' '.join(cmd))
+    # Start
 
-process							= subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-(stdoutstr,stderrstr) 			= process.communicate()
+    # Setup astrometry.net
 
-status							= process.returncode
+    output                             = open('default.conv', 'w')
+    output.write(default_conv)
+    output.close()
 
-if not os.path.isfile(args.fits.replace('.fits', '_wcs.fits')):
-	# Log errors
-	print(bcolors.FAIL + "ERROR: astrometry.net failed on " + str(args.fits) + bcolors.ENDC)
-	log_astro.write(args.fits + '\n')
-else:
-	# Delete temp files
-	cwd							= os.getcwd()
-	if os.path.dirname(args.fits) != '':
-		os.chdir(os.path.dirname(args.fits))
-		os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
-		os.chdir(cwd)
-	else:
-		os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
-		
-	# Transform SIP to PV to use distortion keywords in sextractor
+    output                             = open('default.nnw', 'w')
+    output.write(default_nnw)
+    output.close()
 
-	#print 
-	status      = sip_to_pv.sip_to_pv(infile=args.fits.replace('.fits', '_wcs.fits'), outfile=args.fits.replace('.fits', '_wcs.fits'), tpv_format=True) #False gives warning line/breaks cloud in wcs.all_pix2world
-	if status   == False:
-		print(bcolors.FAIL + 'sip_to_pv failed. {} has only SIP keywords'.format(args.fits.replace('.fits', '_wcs.fits')))
-		# log_sip2pv.write(args.fits.replace('.fits', '_wcs.fits') + '\n')
+    output                             = open('default.param', 'w')
+    output.write(default_param)
+    output.close()
+
+    output                             = open('default.sex', 'w')
+    output.write(default_sex)
+    output.close()
+
+    sex_cfg                            = 'default.sex'
+
+    log_astro                          = open('astro.log', 'w')
+    log_sip2pv                         = open('astro_sip2pv.log', 'w')
+
+    ra_dd, dec_dd                      = fits_tools.convert_hms_dd(args.ra, args.dec)
+
+    print(bcolors.HEADER + 'Process Image' + bcolors.ENDC)
+
+    # Check if fits file complies to standard
+    hdu                                = fits.open(args.fits)
+    hdu_data                           = hdu[0].data
+    hdu_header                         = hdu[0].header
+    fits.writeto(args.fits, hdu_data, hdu_header, overwrite=True, output_verify='silentfix')
+
+    # Improve WCS calibration
+    # Different versions of astrometry.net have different Source Extractor keyword names
+
+    cmd_astrometrynet_base             = ['solve-field', '--no-plots', \
+                                            '--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE', \
+                                            '--sort-column', 'FLUX_AUTO', \
+                                            args.fits, \
+                                            '--uniformize', str(0), \
+                                            '--cpulimit', str(60), \
+                                            '--ra', str(ra_dd), '--dec', str(dec_dd), '--radius', str(args.radius), \
+                                            '--new-fits', args.fits.replace('.fits', '_wcs.fits'), \
+                                            '--overwrite', '--downsample', str(args.downsample)
+                                            ]
+
+    if args.small_field:
+        cmd_astrometrynet_base         += ['-L', str(1.5), '-H', str(5), '-u', 'amw']
+
+    # Older astrometry.net versions
+
+    cmd_astrometrynet                  = copy.deepcopy(cmd_astrometrynet_base)
+    cmd_astrometrynet                  += ['--sextractor-config', sex_cfg]
+
+    if args.tweak_order != 0:
+            cmd_astrometrynet          += ['--tweak-order', str(args.tweak_order)]
+    else:
+            cmd_astrometrynet          += ['-T']
+
+    print (' '.join(cmd_astrometrynet))
+
+    process                            = subprocess.Popen(cmd_astrometrynet, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (stdoutstr,stderrstr)              = process.communicate()
+    status                             = process.returncode
+
+    if status == 0:
+            print(bcolors.OKGREEN + "WCS calibration succcesful: " + str(args.fits) + bcolors.ENDC)
+
+    else:
+
+        # New versions of astrometry.net changed sextractor-config to source-extractor-config
+
+        cmd_astrometrynet              = copy.deepcopy(cmd_astrometrynet_base)
+        cmd_astrometrynet              += ['--source-extractor-config', sex_cfg]
+
+        if args.tweak_order != 0:
+            cmd_astrometrynet          += ['--tweak-order', str(args.tweak_order)]
+
+        else:
+            cmd_astrometrynet          += ['-T']
+
+        print (' '.join(cmd_astrometrynet))
+
+        process                        = subprocess.Popen(cmd_astrometrynet, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (stdoutstr,stderrstr)          = process.communicate()
+        status                         = process.returncode
+
+        if status == 0:
+            print(bcolors.OKGREEN + "WCS calibration succcesful: " + str(args.fits) + bcolors.ENDC)
+
+    # Postprocess
+
+    if not os.path.isfile(args.fits.replace('.fits', '_wcs.fits')):
+
+        # Log errors
+        print(bcolors.FAIL + "ERROR: astrometry.net failed on " + str(args.fits) + bcolors.ENDC)
+        log_astro.write(args.fits + '\n')
+
+    else:
+
+        # Delete temp files
+        
+        cwd                            = os.getcwd()
+        
+        if os.path.dirname(args.fits) != '':
+            os.chdir(os.path.dirname(args.fits))
+            os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
+            os.chdir(cwd)
+        else:
+            os.system('rm *.axy *indx.xyls *.corr *.match *.rdls *.solved *.wcs')
+            
+        # Transform SIP to PV to use distortion keywords in sextractor
+
+        status      = sip_to_pv.sip_to_pv(
+                                            infile     = args.fits.replace('.fits', '_wcs.fits'),
+                                            outfile    = args.fits.replace('.fits', '_wcs.fits'),
+                                            tpv_format = True) #False gives warning line/breaks cloud in wcs.all_pix2world
+
+        if status   == False:
+            print(bcolors.FAIL + 'sip_to_pv failed. {} has only SIP keywords'.format(args.fits.replace('.fits', '_wcs.fits')))
+
+    return None
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

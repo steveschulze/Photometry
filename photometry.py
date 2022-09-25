@@ -8,6 +8,7 @@ from 	astropy import table, time
 from	astropy.io import ascii, fits
 from 	astropy import units as u
 import	cat_tools
+import  copy
 import	fits_tools
 import	logging
 from 	matplotlib import pylab as plt
@@ -98,7 +99,7 @@ parser.add_argument('--deblend-nthresh',type	= int,
 
 parser.add_argument('--deblend-mincont',type	= float,
 										help	= 'Minimum contrast parameter for deblending (default: 0.00001)',
-										default	= 0.00001)
+										default	= 0.0001)
 
 parser.add_argument('--noflags',		action	= 'store_true',
 										help	= 'Do not use the sextractor keyword \'FLAGS\' to filter objects (default: False)',
@@ -409,6 +410,8 @@ ref_stars							= phot_routines.sextractor_photometry(
 																		PHOT_APERTURES	= "10",
 																		REF_FILE		= args.ref_image)
 
+ref_stars = ref_stars[(ref_stars['MAGERR_APER'] > 0.0002) & (ref_stars['MAGERR_AUTO'] > 0.0002)]
+
 logger.info('{numstars} stars identified to build local sequence'.format(numstars=len(ref_stars)))
 
 # Apply quality cuts to select the good stars to build the local sequence
@@ -439,7 +442,7 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	# PSF clipping
 	# print (ref_stars)
 	
-	# FWHM_IMAGE can fail if there is something funny with the sources
+	"""# FWHM_IMAGE can fail if there is something funny with the sources
 	# If this fails, it uses FLUX_RADIUS 
 
 	fwhm_p25						= np.percentile(ref_stars['FWHM_IMAGE'], 25)
@@ -456,7 +459,7 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 				
 		fwhm_mask_good					= np.where(ref_stars['FLUX_RADIUS'] < fwhm_p75 + 1.5 * (fwhm_p75 - fwhm_p25))[0]
 
-	ref_stars 						= ref_stars[fwhm_mask_good]
+	#ref_stars 						= ref_stars[fwhm_mask_good]"""
 
 	# Magnitude cut
 
@@ -475,8 +478,6 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 		ref_stars 					= ref_stars[:args.maxstars]
 
 	logger.info('{numstars} stars remain after pruning'.format(numstars=len(ref_stars)))
-
-	print(ref_stars)
 
 	# Crossmatch the sextractor catalog with the reference catalog
 
@@ -507,8 +508,14 @@ if args.mag_stdbright == 0 and args.mag_stdfaint == 0:
 	matched_standard['MAGERR_APER'].name 	= 'MAGERR_INS'
 	matched_standard['MAG'].name 			= 'MAG_CAT'
 	matched_standard['MAGERR'].name 		= 'MAGERR_CAT'
+	matched_standard['MAG_ZP_TEMP']			= matched_standard['MAG_CAT'] - matched_standard['MAG_INS']
+	matched_standard['MAG_ZP_TEMP'].format	= '.3f'
 
-	print(matched_standard)
+
+	matched_standard_temp                  = copy.deepcopy(matched_standard)
+	matched_standard_temp.sort('MAG_CAT')
+
+	print(matched_standard_temp[['ALPHAWIN_J2000', 'DELTAWIN_J2000', 'XWIN_IMAGE', 'YWIN_IMAGE', 'FWHM_IMAGE', 'MAG_CAT', 'MAGERR_CAT', 'MAG_INS', 'MAGERR_INS', 'MAG_ZP_TEMP', 'DIST']])
 
 	# Define local sequence
 
@@ -627,6 +634,8 @@ else:
 																		UPPER	= 100)
 #																		BW		= args.bw)
 
+	import pdb; pdb.set_trace()
+
 	matched_standard				= local_sequence['CAT']
 
 	logger.info('Final number of stars in the local sequenc: {num_stars}'.format(num_stars=local_sequence['NUMSTARS']))
@@ -649,7 +658,7 @@ if args.ref_image == '':
 else:		
 	FWHM_median						= fwhm_p50
 
-apertures							= 2*FWHM_median * np.array(args.ap_diam)#2*np.array([2, 3, 4, 5])*2.0153891##
+apertures							= 2*FWHM_median * np.array(args.ap_diam)#2*np.array([2, 3, 4, 5])*2.0153891##np.array([3.55, 5.59, 7.90, 16.13])
 
 # Step 3: Compute zeropoint
 
@@ -737,6 +746,8 @@ phot_science						= phot_routines.sextractor_photometry(
 																		PATH			= args.outdir,
 																		PHOT_APERTURES	= apertures,#2*np.array(args.ap_diam)*FWHM_median,
 																		REF_FILE		= args.ref_image)
+
+print(phot_science)
 
 msg									= 'Post-process Sextractor output'
 print(bcolors.OKGREEN + bcolors.BOLD + '\n' + msg + bcolors.ENDC)
@@ -840,7 +851,7 @@ for i in range(len(summary_zeropoint['METHOD'])):
 		summary_zeropoint['r(FWHM)'][i]		= args.ap_diam[j]
 		j									+= 1
 
-summary_zeropoint['diam(px)']					= summary_zeropoint['r(FWHM)'] * FWHM_median#[0, 0, apertures[0], apertures[1], apertures[2], apertures[3]]#
+summary_zeropoint['diam(px)']					= 2*summary_zeropoint['r(FWHM)'] * FWHM_median#[0, 0, apertures[0], apertures[1], apertures[2], apertures[3]]#
 
 summary_zeropoint['MAG_3UL_GLOB']			= np.nan*len(summary_zeropoint)
 summary_zeropoint['AP_cor']					= summary_zeropoint['ZP'][-1] - summary_zeropoint['ZP'] 

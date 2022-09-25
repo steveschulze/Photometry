@@ -287,7 +287,7 @@ def sip_to_pv(infile,outfile,tpv_format=True,preserve=False,extension=0,clobber=
     add_pv_keywords(header, sipx, sipy, pvrange, tpvx, tpvy, tpv=tpv_format)
     if (not preserve):
         remove_sip_keywords(header)
-    hdu.writeto(outfile, clobber=clobber)
+    hdu.writeto(outfile, overwrite=clobber)
 
     if os.path.exists(outfile):
       return True

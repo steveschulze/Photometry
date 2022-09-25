@@ -67,7 +67,7 @@ catalog_prop['GAIA']['CATID_OUT']		= catalog_prop['GAIA']['CATID'] + '/gaia2'
 
 catalog_prop['UKIDSS']					= {}
 catalog_prop['UKIDSS']['KEYWORDS']		= ['RAJ2000', 'DEJ2000',
-											'cl',
+											'class',
 											'Ymag', 'e_Ymag',
 											'Jmag1', 'e_Jmag1',
 											'Jmag2', 'e_Jmag2',
@@ -88,6 +88,18 @@ catalog_prop['WISE']['CATID_OUT']		= catalog_prop['WISE']['CATID'] + '/allwise'
 catalog_prop['WISE']['FILTER']			= ['W1', 'W2']
 catalog_prop['WISE']['SIGMA_HIGH']		= 0
 catalog_prop['WISE']['SIGMA_LOW']		= 0.2
+
+catalog_prop['DES']						= {}
+catalog_prop['DES']['KEYWORDS']			= ['RAJ2000', 'DEJ2000',
+											'gmag', 'rmag', 'imag', 'zmag', 'Ymag',
+											'e_gmag', 'e_rmag', 'e_imag', 'e_zmag', 'e_Ymag',
+											'S_Gg', 'S_Gr', 'S_Gi', 'S_Gz',
+											'gFlag', 'rFlag', 'iFlag', 'zFlag']
+catalog_prop['DES']['CATID']			= "II/357"
+catalog_prop['DES']['CATID_OUT']		= catalog_prop['DES']['CATID'] + '/des_dr1'
+catalog_prop['DES']['FILTER']			= ['g', 'r', 'i', 'z', 'y']
+catalog_prop['DES']['SIGMA_HIGH']		= 0
+catalog_prop['DES']['SIGMA_LOW']		= 0.2
 
 def PS1_to_SDSS(DATA):
 
@@ -162,11 +174,11 @@ def PS1_to_ZTF(DATA):
 
 	# Ref: https://iopscience.iop.org/article/10.3847/2515-5172/ab7f3c
 
-	DATA['g_ZTF'] = DATA['g_SDSS'] + 0.055 * (DATA['g_SDSS'] - DATA['r_SDSS']) - 0.012
-	DATA['r_ZTF'] = DATA['r_SDSS'] - 0.087 * (DATA['g_SDSS'] - DATA['r_SDSS']) - 0.0035
+	DATA['g_ZTF'] = DATA['g_PS1'] + 0.055 * (DATA['g_PS1'] - DATA['r_PS1']) - 0.012
+	DATA['r_ZTF'] = DATA['r_PS1'] - 0.087 * (DATA['g_PS1'] - DATA['r_PS1']) - 0.0035
 
-	DATA['g_ZTF_ERR'] = np.sqrt(DATA['g_SDSS_ERR']**2 + (0.055*DATA['g_SDSS_ERR'])**2 + (0.055*DATA['r_SDSS_ERR'])**2)
-	DATA['r_ZTF_ERR'] = np.sqrt(DATA['r_SDSS_ERR']**2 + (0.087*DATA['g_SDSS_ERR'])**2 + (0.087*DATA['r_SDSS_ERR'])**2)
+	DATA['g_ZTF_ERR'] = np.sqrt(DATA['g_PS1_ERR']**2 + (0.055*DATA['g_PS1_ERR'])**2 + (0.055*DATA['r_PS1_ERR'])**2)
+	DATA['r_ZTF_ERR'] = np.sqrt(DATA['r_PS1_ERR']**2 + (0.087*DATA['g_PS1_ERR'])**2 + (0.087*DATA['r_PS1_ERR'])**2)
 
 	return DATA
 
@@ -233,6 +245,23 @@ def SDSS_to_Bessel(DATA):
 						(1.2444 * DATA['r_SDSS_ERR'])**2 +
 						(1.2444 * DATA['i_SDSS_ERR'])**2
 						)
+
+	return DATA
+
+def DES_to_SDSS(DATA):
+
+	# Ref: https://iopscience.iop.org/article/10.3847/1538-4365/aab4f5#apjsaab4f5app1-4?gridset=show Appendix A.4
+	# Inverted Eqs. 14-18 with Mathematica
+
+	DATA['g_SDSS']		=  1.002   * (-0.00894 + 1.102 * DATA['g_DES'] - 0.104 * DATA['r_DES'])
+	DATA['r_SDSS']		= -1.002   * ( 0.01894 - 0.102 * DATA['g_DES'] - 0.896 * DATA['r_DES'])
+	DATA['i_SDSS']		= -1.20482 * ( 0.01916 - 1.086 * DATA['i_DES'] + 0.256 * DATA['z_DES'])
+	DATA['z_SDSS']		= -1.20482 * ( 0.00916 - 0.086 * DATA['i_DES'] - 0.744 * DATA['z_DES'])
+
+	DATA['g_SDSS_ERR']	= np.sqrt( ( 1.002   * 1.102 * DATA['g_DES_ERR'])**2 + ( 1.002   * 0.104 * DATA['r_DES_ERR'])**2 )
+	DATA['r_SDSS_ERR']	= np.sqrt( ( 1.002   * 0.102 * DATA['g_DES_ERR'])**2 + ( 1.002   * 0.896 * DATA['r_DES_ERR'])**2 )
+	DATA['i_SDSS_ERR']	= np.sqrt( ( 1.20482 * 1.086 * DATA['i_DES_ERR'])**2 + ( 1.20482 * 0.256 * DATA['z_DES_ERR'])**2 )
+	DATA['z_SDSS_ERR']	= np.sqrt( ( 1.20482 * 0.086 * DATA['i_DES_ERR'])**2 + ( 1.20482 * 0.744 * DATA['z_DES_ERR'])**2 )
 
 	return DATA
 

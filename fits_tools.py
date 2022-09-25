@@ -1,6 +1,7 @@
+import pdb
 from 	astropy import coordinates as coord
 from 	astropy import wcs
-from 	astropy.io import fits
+from 	astropy.io import ascii, fits
 from 	astropy import units as u
 from 	misc import bcolors
 import	numpy as np
@@ -52,45 +53,112 @@ def pix2arcsec(FITS):
 	return np.median(wcs.utils.proj_plane_pixel_scales(hdu_wcs)) * 3600
 	
 
-def sky2xy (FITS, RA=False, DEC=False, CAT=None):
+def sky2xy_helper(FITS, RA, DEC):
 
-	'''
-	Coordinate transformation: sky -> xy
-	'''
+        """
+        Converts physical coordinates to WCS coordinates for
+        calculations with wcstools' xy2sky.
+        @param image_path: FITS image file name with path.
+        @type image_path: str
+        @param ra: RA coordinate of object.
+        @type ra: string
+        @param dec: DEC coordinate of object.
+        @type dec: string
+        @return: tuple
+        """
 
-	if CAT == None:
-		if RA != False and  DEC != False:
-			cmd=('sky2xy %s %s %s | grep -v off' %(FITS, RA, DEC))
-			program_call = os.popen(cmd)
-			xy = []
-			for line in program_call:
-				xy=np.array(line.strip().split()[-2:]).astype(float)
-			if len(xy) > 0:
-				return xy
+        if FITS:
+            hdulist = fits.open(FITS)#[0]
+        else:
+            print("FITS image has not been provided by the user!")
+            raise SystemExit
 
-	else:
-		cmd 	=("more %s | awk '{print $1,$2}' > %s" %(CAT, CAT.replace(CAT.split('.')[-1], 'reg')))
-		os.system(cmd)
-		cmd 	= ("sky2xy %s @%s | grep -v off | awk '{print $5, $6}'" %(FITS, CAT.replace(CAT.split('.')[-1], 'reg')))
-		cat 	= os.popen(cmd)
+        #fo = FitsOps(IMAGE)
 
+        #header = [hdulist[ii].header for ii in range(len(hdulist))]
+        #from astropy import table
+        #header = table.vstack(header)
 
-		xy	= []
-		for line in cat:
-			xy.append(list(map(float, line.replace('\n', '').split())))
+        #header = hdu.header
 
-		return np.array(xy)
+        flag_save = True
 
-def xy2sky (FITSFILE,X,Y):
+        for hdu in hdulist:
+            _w = wcs.WCS(hdu.header)
+            if _w.array_shape != None:
+                if flag_save:
+                    w = wcs.WCS(hdu.header)
+                    naxis2, naxis1 = w.array_shape
+                    flag_save = False
 
-	'''
-	Coordinate transformation: xy -> sky
-	'''
+        if ":" in (str(RA) or str(DEC)):
+            c = coord.SkyCoord('{0} {1}'.format(
+                        RA, DEC), unit=(u.hour, u.deg),
+                                 frame='icrs')
+        else:
+            c = coord.SkyCoord('{0} {1}'.format(
+                        RA, DEC), unit=(u.deg, u.deg),
+                                 frame='icrs')
 
-	program_call = os.popen('xy2sky %s %s %s' %(FITSFILE, X, Y))
-	sky = []
+        # target's X and Y coordinates
 
-	for line in program_call:
-		sky.append(line.strip().split()[:2])
+        t_x, t_y = w.wcs_world2pix(c.ra.degree, c.dec.degree, 1)
 
-	return sky
+        if np.isnan(t_x):
+            t_x, t_y = w.wcs_world2pix(c.dec.degree, c.ra.degree, 1)
+
+        if naxis1 < t_x or naxis2 < t_y or t_x < 0 or t_y < 0:
+            #print("Provided coordinates are out of frame!")
+            return(False)
+        else:
+            return(float(t_x), float(t_y))
+
+def sky2xy(FITS, RA=None, DEC=None, CAT=None):
+
+    # For individual object
+    if CAT == None:
+        return sky2xy_helper(FITS, RA, DEC)
+
+    # For a set of objects
+    else:
+        cat = ascii.read(CAT)
+        cat_keys = cat.keys()
+
+        xy = []
+        for ii in range(len(cat)):
+            _sky2xy = sky2xy_helper(FITS, cat[ii][cat_keys[0]], cat[ii][cat_keys[1]])
+
+            if _sky2xy != False:
+                xy.append(_sky2xy)
+
+    return np.array(xy)
+
+def xy2sky(FITS, X, Y, sep=":"):
+
+        """
+        Converts physical coordinates to WCS coordinates for STDOUT.
+        @param file_name: FITS image file name with path.
+        @type file_name: str
+        @param x: x coordinate of object.
+        @type x: float
+        @param y: y coordinate of object.
+        @type y: float
+        @param sep: delimiter for HMSDMS format.
+        @type sep: float
+        @return: str
+        """
+
+        try:
+            header = fits.getheader(FITS)
+            w = wcs.WCS(header)
+            astcoords_deg = w.wcs_pix2world([[X, Y]], 0)
+            c = coord.SkyCoord(astcoords_deg * u.deg,
+                                             frame='fk5')
+
+            alpha = c.to_string(style='hmsdms', sep=sep, precision=3)[0]
+            delta = c.to_string(style='hmsdms', sep=sep, precision=2)[0]
+
+            return alpha.split(" ")[0], delta.split(" ")[1]
+        
+        except Exception as e:
+            pass

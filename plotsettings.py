@@ -59,10 +59,10 @@ rcParams['axes.labelsize']		= fontsize
 
 box 				            = dict(facecolor='white', pad=5, linewidth=0.0, alpha=0.75)
 
-if len(platform.mac_ver()[0]) > 0:
-	matplotlib.use('MacOSX')
-else:
-	matplotlib.use('Qt5Agg')
+#if len(platform.mac_ver()[0]) > 0:
+#	matplotlib.use('MacOSX')
+#else:
+#	matplotlib.use('Qt5Agg')
 
 # Colours
 # Solarize colour scheme
