@@ -1593,6 +1593,7 @@ def zeropoint(TABLE_REF, TABLE_NEW, FITS='', LOGGER=None, NITER=30000, PATH='', 
 
         # Add to plot
 
+        import pdb; pdb.set_trace()
         zp_plot                = fig.add_subplot(int(len(keys_mag)/3) if len(keys_mag)%3 == 0 else int(len(keys_mag)/3) + 1, 3, i+1)
 
         if len(temp_zp)     > 0:
