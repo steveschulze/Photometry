@@ -1,164 +1,234 @@
-import pdb
-from 	astropy import coordinates as coord
-from 	astropy import wcs
-from 	astropy.io import ascii, fits
-from 	astropy import units as u
-from 	misc import bcolors
-import	numpy as np
-import	os
+"""
+fits_tools.py — FITS file utilities and WCS coordinate transformations.
+
+Provides coordinate conversion (HMS ↔ decimal degrees), sky-to-pixel
+transformations, and pixel-scale extraction.
+"""
+
+__version__ = "2026-05-29"
+__author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
+
+from   astropy import coordinates as coord
+from   astropy import wcs
+from   astropy.io import ascii, fits
+from   astropy import units as u
+from   astropy.wcs.utils import proj_plane_pixel_scales
+from   misc import bcolors
+import numpy as np
+import sys
+
 
 def convert_hms_dd(RA, DEC):
+    """Convert RA/Dec from HMS/DMS strings or decimal strings to decimal degrees.
 
-	'''
-	Convert HMS to DD system
-	'''
+    Accepts either colon-separated sexagesimal strings (``HH:MM:SS.ss``,
+    ``±DD:MM:SS.s``) or plain decimal degree strings / floats.
 
-	if (':' in RA) and (':' in DEC):
-		Coord_dd	= coord.SkyCoord(RA, DEC, unit=(u.hour,u.degree), frame='icrs')
-		RA_dd		= Coord_dd.ra.deg
-		Dec_dd		= Coord_dd.dec.deg
+    Parameters
+    ----------
+    RA : str or float
+        Right ascension.  Sexagesimal if it contains ``':'``, otherwise
+        interpreted as decimal degrees.
+    DEC : str or float
+        Declination.  Sexagesimal if it contains ``':'``, otherwise
+        interpreted as decimal degrees.
 
-	elif (not (':' in RA) and not (':' in DEC)) and (('.' in RA) and ('.' in DEC)):
-		RA_dd, Dec_dd	= float(RA), float(DEC)
+    Returns
+    -------
+    tuple
+        (ra_dd, dec_dd) both in decimal degrees (float).
 
-	else:
-		print(bcolors.FAIL + 'Coordinates have wrong format.' + bcolors.ENDC)
-		sys.exit()
+    Raises
+    ------
+    SystemExit
+        If the coordinate format cannot be parsed.
+    """
+    ra_str  = str(RA).strip().strip('"')
+    dec_str = str(DEC).strip().strip('"')
 
-	return RA_dd, Dec_dd
+    has_colon = ':' in ra_str or ':' in dec_str
 
-def get_header(FILE, KEYWORD):
+    if has_colon:
+        try:
+            c = coord.SkyCoord(ra_str, dec_str,
+                               unit=(u.hour, u.degree), frame='icrs')
+            return float(c.ra.deg), float(c.dec.deg)
+        except Exception as exc:
+            print(bcolors.FAIL
+                  + f'Cannot parse coordinates "{ra_str}" "{dec_str}": {exc}'
+                  + bcolors.ENDC)
+            sys.exit(1)
 
-	'''
-	Get keyword from fits file
-	'''
+    try:
+        return float(ra_str), float(dec_str)
+    except ValueError as exc:
+        print(bcolors.FAIL
+              + f'Cannot parse coordinates "{ra_str}" "{dec_str}": {exc}'
+              + bcolors.ENDC)
+        sys.exit(1)
 
-	header	= fits.getheader(FILE)
-	return header[KEYWORD]
 
-def pix2arcsec(FITS):
+def get_header(filepath, keyword):
+    """Read a single keyword from a FITS header.
 
-	'''
-	Get pixel scale
-	'''
+    Parameters
+    ----------
+    filepath : str
+        Path to the FITS file.
+    keyword : str
+        Header keyword to retrieve.
 
-	hdu		= fits.open(FITS)
-	if len(hdu) > 1:
-		header	= fits.getheader(FITS, 0)
-		header	+= fits.getheader(FITS, 1)
-	else:
-		header	= fits.getheader(FITS)
+    Returns
+    -------
+    value
+        Header value (type depends on keyword).
+    """
+    return fits.getheader(filepath)[keyword]
 
-	hdu_wcs			= wcs.WCS(header)
-	return np.median(wcs.utils.proj_plane_pixel_scales(hdu_wcs)) * 3600
-	
 
-def sky2xy_helper(FITS, RA, DEC):
+def pix2arcsec(fits_path):
+    """Return the median pixel scale of a FITS image in arcsec/pixel.
 
-        """
-        Converts physical coordinates to WCS coordinates for
-        calculations with wcstools' xy2sky.
-        @param image_path: FITS image file name with path.
-        @type image_path: str
-        @param ra: RA coordinate of object.
-        @type ra: string
-        @param dec: DEC coordinate of object.
-        @type dec: string
-        @return: tuple
-        """
+    Reads WCS information from the primary (and, if present, first extension)
+    header and computes the plate scale using
+    :func:`astropy.wcs.utils.proj_plane_pixel_scales`.
 
-        if FITS:
-            hdulist = fits.open(FITS)#[0]
-        else:
-            print("FITS image has not been provided by the user!")
-            raise SystemExit
+    Parameters
+    ----------
+    fits_path : str
+        Path to the FITS file.
 
-        #fo = FitsOps(IMAGE)
+    Returns
+    -------
+    float
+        Median pixel scale in arcsec/pixel.
+    """
+    with fits.open(fits_path) as hdu:
+        header = hdu[0].header.copy()
+        if len(hdu) > 1:
+            header += hdu[1].header
 
-        #header = [hdulist[ii].header for ii in range(len(hdulist))]
-        #from astropy import table
-        #header = table.vstack(header)
+    hdu_wcs = wcs.WCS(header)
+    return float(np.median(proj_plane_pixel_scales(hdu_wcs)) * 3600.)
 
-        #header = hdu.header
 
-        flag_save = True
+def _wcs_from_fits(fits_path):
+    """Load a WCS object and image dimensions from a FITS file.
 
+    Parameters
+    ----------
+    fits_path : str
+        Path to the FITS file.
+
+    Returns
+    -------
+    tuple
+        (wcs_obj, naxis1, naxis2) — WCS object and image dimensions.
+    """
+    with fits.open(fits_path) as hdulist:
+        # Find the extension that has both WCS and image data
         for hdu in hdulist:
-            _w = wcs.WCS(hdu.header)
-            if _w.array_shape != None:
-                if flag_save:
-                    w = wcs.WCS(hdu.header)
+            try:
+                w = wcs.WCS(hdu.header)
+                if w.array_shape is not None and len(w.array_shape) == 2:
                     naxis2, naxis1 = w.array_shape
-                    flag_save = False
+                    return w, naxis1, naxis2
+            except Exception:
+                continue
 
-        if ":" in (str(RA) or str(DEC)):
-            c = coord.SkyCoord('{0} {1}'.format(
-                        RA, DEC), unit=(u.hour, u.deg),
-                                 frame='icrs')
-        else:
-            c = coord.SkyCoord('{0} {1:.06f}'.format(
-                        RA, DEC), unit=(u.deg, u.deg),
-                                 frame='icrs')
+    raise ValueError(f'No valid 2-D WCS found in {fits_path}')
 
-        # target's X and Y coordinates
-
-        t_x, t_y = w.wcs_world2pix(c.ra.degree, c.dec.degree, 1)
-
-        if np.isnan(t_x):
-            t_x, t_y = w.wcs_world2pix(c.dec.degree, c.ra.degree, 1)
-
-        if naxis1 < t_x or naxis2 < t_y or t_x < 0 or t_y < 0:
-            #print("Provided coordinates are out of frame!")
-            return(False)
-        else:
-            return(float(t_x), float(t_y))
 
 def sky2xy(FITS, RA=None, DEC=None, CAT=None):
+    """Convert sky coordinates to pixel positions for an image.
 
-    # For individual object
-    if CAT == None:
-        return sky2xy_helper(FITS, RA, DEC)
+    When *CAT* is given, reads all positions from a two-column ASCII file
+    and uses a **vectorised** WCS transformation (one call for all rows).
+    Positions outside the image footprint are silently excluded.
 
-    # For a set of objects
-    else:
-        cat = ascii.read(CAT)
-        cat_keys = cat.keys()
+    All returned pixel positions are 1-indexed (FITS convention).
 
-        xy = []
-        for ii in range(len(cat)):
-            _sky2xy = sky2xy_helper(FITS, float(cat[ii][cat_keys[0]]), float(cat[ii][cat_keys[1]]))
+    Parameters
+    ----------
+    FITS : str
+        Path to the FITS file.
+    RA : float, optional
+        Right ascension in decimal degrees (single-object mode).
+    DEC : float, optional
+        Declination in decimal degrees (single-object mode).
+    CAT : str, optional
+        Path to a two-column (RA, Dec) ASCII catalog (multi-object mode).
 
-            if _sky2xy != False:
-                xy.append(_sky2xy)
+    Returns
+    -------
+    tuple or np.ndarray
+        Single-object: ``(x, y)`` tuple (1-indexed floats).
+        Multi-object: ``np.ndarray`` of shape ``(N, 2)`` with x, y columns.
 
-    return np.array(xy)
+    Raises
+    ------
+    SystemExit
+        Single-object mode: if object is outside the image footprint or
+        WCS transformation fails.
+    """
+    w, naxis1, naxis2 = _wcs_from_fits(FITS)
 
-def xy2sky(FITS, X, Y, sep=":"):
+    if CAT is None:
+        # Single-object mode
+        ra_val  = float(RA)
+        dec_val = float(DEC)
+        x, y = w.wcs_world2pix(ra_val, dec_val, 1)
 
-        """
-        Converts physical coordinates to WCS coordinates for STDOUT.
-        @param file_name: FITS image file name with path.
-        @type file_name: str
-        @param x: x coordinate of object.
-        @type x: float
-        @param y: y coordinate of object.
-        @type y: float
-        @param sep: delimiter for HMSDMS format.
-        @type sep: float
-        @return: str
-        """
+        if np.isnan(x) or np.isnan(y):
+            # Try swapping axes (rare header misconfigurations)
+            x, y = w.wcs_world2pix(dec_val, ra_val, 1)
 
-        try:
-            header = fits.getheader(FITS)
-            w = wcs.WCS(header)
-            astcoords_deg = w.wcs_pix2world([[X, Y]], 0)
-            c = coord.SkyCoord(astcoords_deg * u.deg,
-                                             frame='fk5')
+        if x < 1 or x > naxis1 or y < 1 or y > naxis2:
+            return False
 
-            alpha = c.to_string(style='hmsdms', sep=sep, precision=3)[0]
-            delta = c.to_string(style='hmsdms', sep=sep, precision=2)[0]
+        return float(x), float(y)
 
-            return alpha.split(" ")[0], delta.split(" ")[1]
-        
-        except Exception as e:
-            pass
+    # Multi-object mode — vectorised batch transformation
+    cat_data = ascii.read(CAT)
+    keys     = cat_data.colnames
+
+    ra_arr  = np.array(cat_data[keys[0]], dtype=float)
+    dec_arr = np.array(cat_data[keys[1]], dtype=float)
+
+    # Batch WCS call: origin=1 → 1-indexed output
+    x_arr, y_arr = w.wcs_world2pix(ra_arr, dec_arr, 1)
+
+    # Keep only positions inside image footprint
+    in_frame = ((x_arr >= 1) & (x_arr <= naxis1)
+                & (y_arr >= 1) & (y_arr <= naxis2)
+                & np.isfinite(x_arr) & np.isfinite(y_arr))
+
+    return np.column_stack([x_arr[in_frame], y_arr[in_frame]])
+
+
+def xy2sky(FITS, X, Y, sep=':'):
+    """Convert pixel coordinates to sky coordinates.
+
+    Parameters
+    ----------
+    FITS : str
+        Path to the FITS file.
+    X : float
+        x pixel position (1-indexed).
+    Y : float
+        y pixel position (1-indexed).
+    sep : str
+        Separator for HMS/DMS string output (default ``':'``).
+
+    Returns
+    -------
+    tuple
+        (ra_str, dec_str) formatted as HMS and DMS strings.
+    """
+    header = fits.getheader(FITS)
+    w = wcs.WCS(header)
+    sky_deg = w.wcs_pix2world([[float(X), float(Y)]], 1)[0] * u.deg
+    c = coord.SkyCoord(sky_deg[0], sky_deg[1], frame='fk5')
+    alpha = c.to_string(style='hmsdms', sep=sep, precision=3).split()[0]
+    delta = c.to_string(style='hmsdms', sep=sep, precision=2).split()[1]
+    return alpha, delta

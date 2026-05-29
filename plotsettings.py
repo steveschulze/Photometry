@@ -1,13 +1,18 @@
-from	astropy.io import ascii
-import	matplotlib
-from	matplotlib.path import Path
-import	matplotlib.patches as patches
-import	matplotlib.path as mpath
-import	matplotlib.patheffects as PathEffects
+"""
+plotsettings.py — Global matplotlib configuration and Vigit colour scheme.
+
+Import with ``from plotsettings import *`` to apply the style and bring
+colour constants into the calling namespace.
+
+Exported symbols (``__all__``) include all ``vigit_*``, ``color_*``
+constants plus the axis-position helpers ``left, right, top, bottom``
+and font-size variables ``fontsize, label_size, legend_size``.
+"""
+
+import	matplotlib.patheffects as PathEffects  # noqa: F401 — re-exported
 import	matplotlib.pylab as plt
 from	matplotlib import rc, rcParams
 import	numpy as np
-import	platform
 
 left, width                     = 0, 1
 bottom, height                  = 0, 1
@@ -132,8 +137,36 @@ vigit_color_11_dark             = '#6c2710'
 vigit_color_12_dark             = '#60170e'
 
 
-colors_vigit					= [vigit_color_1, vigit_color_2, vigit_color_3, vigit_color_4, vigit_color_5,
-								vigit_color_6, vigit_color_7, vigit_color_8, vigit_color_9, vigit_color_10,
-								vigit_color_11, vigit_color_12, vigit_grey_1, vigit_grey_2, vigit_grey_3,
-								vigit_grey_4, vigit_grey_5, vigit_grey_6, vigit_grey_7, vigit_grey_8, vigit_grey_9
-								]
+colors_vigit = [
+    vigit_color_1,  vigit_color_2,  vigit_color_3,  vigit_color_4,
+    vigit_color_5,  vigit_color_6,  vigit_color_7,  vigit_color_8,
+    vigit_color_9,  vigit_color_10, vigit_color_11, vigit_color_12,
+    vigit_grey_1,   vigit_grey_2,   vigit_grey_3,   vigit_grey_4,
+    vigit_grey_5,   vigit_grey_6,   vigit_grey_7,   vigit_grey_8,
+    vigit_grey_9,
+]
+
+# Symbols exported by ``from plotsettings import *``
+__all__ = [
+    'left', 'right', 'top', 'bottom',
+    'fontsize', 'label_size', 'legend_size',
+    'PathEffects',
+    # Solarized
+    'color_back', 'color_green', 'color_green_light', 'color_green_dark',
+    'color_yellow', 'color_yellow_light', 'color_orange', 'color_red',
+    'color_magenta', 'color_violet', 'color_blue', 'color_cyan',
+    # Vigit palette
+    'vigit_color_1',  'vigit_color_2',  'vigit_color_3',  'vigit_color_4',
+    'vigit_color_5',  'vigit_color_6',  'vigit_color_7',  'vigit_color_8',
+    'vigit_color_9',  'vigit_color_10', 'vigit_color_11', 'vigit_color_12',
+    'vigit_grey_1', 'vigit_grey_2', 'vigit_grey_3', 'vigit_grey_4',
+    'vigit_grey_5', 'vigit_grey_6', 'vigit_grey_7', 'vigit_grey_8',
+    'vigit_grey_9',
+    'vigit_color_1_light',  'vigit_color_2_light',  'vigit_color_3_light',
+    'vigit_color_4_light',  'vigit_color_5_light',  'vigit_color_6_light',
+    'vigit_color_7_light',  'vigit_color_8_light',  'vigit_color_9_light',
+    'vigit_color_10_light', 'vigit_color_11_light', 'vigit_color_12_light',
+    'vigit_color_6_dark', 'vigit_color_9_dark', 'vigit_color_10_dark',
+    'vigit_color_11_dark', 'vigit_color_12_dark',
+    'colors_vigit',
+]

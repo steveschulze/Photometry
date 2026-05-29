@@ -1,1216 +1,1220 @@
-from    astroquery.vizier import Vizier
-from    astropy import coordinates as coord
-from    astropy import stats, table, time
-from    astropy import units as u
-from    astropy.io import ascii, fits
-import    cat_tools
-from    cat_tools import catalog_prop
-import    fits_tools
-import    glob
-from    matplotlib import pylab as plt
-from    matplotlib.colors import LogNorm
-import    matplotlib.gridspec as gridspec
-import    matplotlib.patheffects as PathEffects
-from    misc import bcolors
-import    numpy as np
-import    os
-import    photutils
-from    plotsettings import *
-import    pysynphot as pyS
-import    random
-from    scipy import stats as stats_scipy
-from    scipy import optimize
-import    sewpy
-import    stat_tools
-import    sys
-import    warnings
-from astropy.utils.exceptions import AstropyUserWarning
+"""
+phot_routines.py — Core photometry algorithms for the ENGRAVE pipeline.
 
-warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+Source detection and photometry use sep (Source Extraction and Photometry),
+a C-extension library implementing SExtractor-compatible algorithms without
+requiring an external binary.
+
+Dependencies: sep, photutils, astropy, numpy, scipy, pysynphot (HST only)
+"""
+
+__version__  = "2026-05-29"
+__author__   = "Steve Schulze (steve.schulze@weizmann.ac.il)"
+
+from   astroquery.vizier import Vizier
+from   astropy import coordinates as coord
+from   astropy import stats, table, time, wcs
+from   astropy import units as u
+from   astropy.io import ascii, fits
+from   astropy.wcs.utils import proj_plane_pixel_scales
+import cat_tools
+from   cat_tools import catalog_prop
+import fits_tools
+from   matplotlib import pylab as plt
+from   matplotlib.colors import LogNorm
+import matplotlib.gridspec as gridspec
+import matplotlib.patheffects as PathEffects
+from   misc import bcolors
+import numpy as np
+import numpy.lib.recfunctions as rfn
+import os
+from   pathlib import Path
+from   photutils.aperture import (
+    CircularAperture, CircularAnnulus, EllipticalAperture,
+    aperture_photometry as phot_aperture_photometry
+)
+from   plotsettings import *
+import sep
+import stat_tools
+import sys
+import warnings
+from   astropy.utils.exceptions import AstropyUserWarning
+from   scipy import stats as stats_scipy
+from   scipy import optimize
+
 warnings.filterwarnings("ignore", category=AstropyUserWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-def aperture_photometry(IMAGE, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, RMS, GAIN=1, FA=1, ZEROPOINT=0):
 
+# ---------------------------------------------------------------------------
+# Aperture photometry (photutils-based, used for forced photometry)
+# ---------------------------------------------------------------------------
+
+def aperture_photometry(IMAGE, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS,
+                         RMS, GAIN=1, FA=1, ZEROPOINT=0):
+    """Perform circular aperture photometry for one or more apertures.
+
+    Uses photutils for aperture sums and local background subtraction.
+    Returns magnitudes in the AB system and flux densities in micro-Jy.
+
+    Parameters
+    ----------
+    IMAGE : 2-D array
+        Background-subtracted science image.
+    POSITIONS : tuple or array-like
+        (x, y) pixel position(s) of the target (1-indexed, FITS convention).
+    RADII : array-like
+        Aperture radii in pixels.
+    INNERANNULUS, OUTERANNULUS : array-like
+        Inner and outer radii of the background annuli in pixels.
+    RMS : float
+        Global image RMS (used as fallback; local RMS preferred).
+    GAIN : float
+        Effective detector gain in e⁻/ADU.
+    FA : float
+        Correlated-noise correction factor (default: 1 = uncorrelated).
+    ZEROPOINT : array-like
+        AB magnitude zeropoint for each aperture.
+
+    Returns
+    -------
+    astropy.table.Table
+        Photometry table with flux, magnitude, and noise columns per aperture.
     """
-    Performs aperture photometry one or more objects and for one or more circular apertures per object.
-    Output: mag in AB and FNU in microJy
-    """
+    # Pixel positions are 1-indexed (FITS); photutils expects 0-indexed
+    pos_0indexed = (np.array(POSITIONS) - 1) if np.ndim(POSITIONS) == 1 else \
+                   np.array(POSITIONS) - 1
 
-    src_apers                                            = [photutils.CircularAperture(POSITIONS, r=radius) for radius in RADII]
-    src_apers                                            = [photutils.EllipticalAperture(POSITIONS, radius, radius/5, 76.) for radius in RADII]
+    src_apers = [CircularAperture(pos_0indexed, r=radius) for radius in RADII]
+    bkg_apers = [CircularAnnulus(pos_0indexed, r_in=INNERANNULUS[i],
+                                  r_out=OUTERANNULUS[i]) for i in range(len(RADII))]
 
+    src_phot_table = phot_aperture_photometry(IMAGE, src_apers)
+    bkg_phot_table = phot_aperture_photometry(IMAGE, bkg_apers)
 
-    src_phot_table                                        = photutils.aperture_photometry(IMAGE, src_apers)
-
-    # background
-
-    bkg_apers                                            = [photutils.CircularAnnulus(POSITIONS, r_in=INNERANNULUS[i], r_out=OUTERANNULUS[i]) for i in range(len(RADII))]
-    bkg_phot_table                                        = photutils.aperture_photometry(IMAGE, bkg_apers)
-
-    if 'aperture_sum_0' not in src_phot_table.keys():
+    # Rename single-aperture column to numbered convention
+    if 'aperture_sum_0' not in src_phot_table.colnames:
         src_phot_table.rename_column('aperture_sum', 'aperture_sum_0')
         bkg_phot_table.rename_column('aperture_sum', 'aperture_sum_0')
 
-    # Get statistics of local background
+    # Local background RMS per aperture
+    local_rms = [background_local(IMAGE, bkg_apers[i])[-1] for i in range(len(RADII))]
 
-    #import pdb; pdb.set_trace()
-
-    local_rms                                            = [background_local(IMAGE, x)[-1] for x in bkg_apers]    
-    # Area ratio
-
-    area_ratio                                            = [src_apers[i].area / bkg_apers[i].area for i in range(len(RADII))]
-    bkg_phot_table_rescaled                                = [bkg_phot_table['aperture_sum_' + str(i)] * area_ratio[i] for i in range(len(RADII))]
-
-    # sources - background
+    # Area ratio for background scaling
+    area_ratio = [src_apers[i].area / bkg_apers[i].area for i in range(len(RADII))]
 
     for i in range(len(RADII)):
-        src_phot_table['bkg_'+str(i)]                    = bkg_phot_table_rescaled[i]
-        src_phot_table['bkg_sub_aperture_sum_'+str(i)]    = src_phot_table['aperture_sum_'+str(i)] - bkg_phot_table_rescaled[i]
-
-    # Error estimation
-    # Comprises of source noise and the scatter in the background
-    # noise in drizzled images is correlated
-
-    # Source/Shot/Poisson noise ( ~sqrt(F/effective gain) )
-    # Background noise ( ~sqrt(rms**2 * area) )
+        bkg_scaled = bkg_phot_table['aperture_sum_' + str(i)] * area_ratio[i]
+        src_phot_table['bkg_' + str(i)] = bkg_scaled
+        src_phot_table['bkg_sub_aperture_sum_' + str(i)] = \
+            src_phot_table['aperture_sum_' + str(i)] - bkg_scaled
 
     for i in range(len(RADII)):
+        src_phot_table['ZP_APER_' + str(i)] = ZEROPOINT[i]
 
-        # Append zeropoint to table
+        net_flux = src_phot_table['bkg_sub_aperture_sum_' + str(i)]
 
-        src_phot_table['ZP_APER_' + str(i)]                = ZEROPOINT[i]
+        shot_noise = np.sqrt(np.abs(net_flux) / GAIN)
+        bkg_noise  = np.sqrt(local_rms[i]**2 * src_apers[i].area / FA)
 
-        # Noise terms
+        src_phot_table['SHOT_NOISE_'   + str(i)] = shot_noise
+        src_phot_table['BKG_NOISE_'    + str(i)] = bkg_noise
+        src_phot_table['TOTAL_ERROR_'  + str(i)] = np.sqrt(shot_noise**2 + bkg_noise**2)
 
-        shot_noise                                        = np.sqrt(np.abs(src_phot_table['bkg_sub_aperture_sum_' + str(i)]) / GAIN)
-        # Global background
-        #bkg_noise                                        = np.sqrt(RMS**2 * src_apers[i].area / FA)
+        # Flux density in micro-Jy (AB zeropoint 23.9 corresponds to 1 µJy)
+        factor = 10**(-0.4 * (ZEROPOINT[i] - 23.9))
+        fnu     = net_flux * factor
+        fnu_err = src_phot_table['TOTAL_ERROR_' + str(i)] * factor
 
-        # Local background
-        bkg_noise                                        = np.sqrt(local_rms[i]**2 * src_apers[i].area / FA)
+        src_phot_table['FNU_APER_'    + str(i)] = fnu
+        src_phot_table['FNUERR_APER_' + str(i)] = fnu_err
 
-        src_phot_table['SHOT_NOISE_' + str(i)]            = shot_noise
-        src_phot_table['BKG_NOISE_' + str(i)]            = bkg_noise
-        src_phot_table['TOTAL_ERROR_' + str(i)]            = np.sqrt(shot_noise**2 + bkg_noise**2)
+        # AB magnitudes
+        mag = np.where(fnu > 0,
+                       -2.5 * np.log10(fnu) + 23.9,
+                       -2.5 * np.log10(np.maximum(3 * fnu_err, 1e-30)) + 23.9)
 
-        # Flux densities
-        # Convert to microJy
-        # Converting the ZP for the AB magnitude to a ZP in micro-Jy
+        mag_errp = np.where(
+            fnu > 0,
+            -2.5 * np.log10(fnu - fnu_err) + 2.5 * np.log10(fnu),
+            np.nan)
+        mag_errm = np.where(
+            fnu > 0,
+            -2.5 * np.log10(fnu) + 2.5 * np.log10(fnu + fnu_err),
+            np.nan)
 
-        factor                                            = pow(10, -0.4 * (ZEROPOINT[i] - 23.9))
+        src_phot_table['MAG_APER_'    + str(i)] = mag
+        src_phot_table['MAGERRP_APER_' + str(i)] = mag_errp
+        src_phot_table['MAGERRM_APER_' + str(i)] = mag_errm
 
-        src_phot_table['FNU_APER_' + str(i)]            = src_phot_table['bkg_sub_aperture_sum_' + str(i)] * factor
-        src_phot_table['FNUERR_APER_' + str(i)]            = src_phot_table['TOTAL_ERROR_' + str(i)] * factor
+    for key in src_phot_table.colnames:
+        if 'MAG_APER' in key or 'aperture' in key:
+            src_phot_table[key].info.format = '%.3f'
+        elif 'FNU' in key or 'NOISE' in key or 'TOTAL' in key:
+            src_phot_table[key].info.format = '%.3e'
 
-        # Magnitudes (AB)
-
-        src_phot_table['MAG_APER_' + str(i)]            = [
-                                                        -2.5*np.log10(src_phot_table['FNU_APER_' + str(i)][j])
-                                                        if src_phot_table['FNU_APER_' + str(i)][j] > 0 else -2.5*np.log10(3 * src_phot_table['FNUERR_APER_' + str(i)][j])
-                                                        for j in range(len(src_phot_table['FNU_APER_' + str(i)]))
-                                                        ]
-
-        src_phot_table['MAGERRP_APER_' + str(i)]        = [
-                                                        -2.5*np.log10(src_phot_table['FNU_APER_' + str(i)][j] - src_phot_table['FNUERR_APER_' + str(i)][j]) + 2.5*np.log10(src_phot_table['FNU_APER_' + str(i)][j])
-                                                        if src_phot_table['FNU_APER_' + str(i)][j] > 0 else np.nan
-                                                        for j in range(len(src_phot_table['FNU_APER_' + str(i)]))
-                                                        ]
-
-        src_phot_table['MAGERRM_APER_' + str(i)]        = [
-                                                        -2.5*np.log10(src_phot_table['FNU_APER_' + str(i)][j]) + 2.5*np.log10(src_phot_table['FNU_APER_' + str(i)][j] + src_phot_table['FNUERR_APER_' + str(i)][j])
-                                                        if src_phot_table['FNU_APER_' + str(i)][j] > 0 else np.nan
-                                                        for j in range(len(src_phot_table['FNU_APER_' + str(i)]))
-                                                        ]
-
-        # Transform the magnitudes back to the AB system
-
-        src_phot_table['MAG_APER_' + str(i)]            += 23.9
-
-    for key in [x for x in src_phot_table.keys() if x or 'MAG_APER_' in x or 'aperture' in x]:
-        src_phot_table[key].info.format                 = '%.3f'
-
-    for key in [x for x in src_phot_table.keys() if 'FNU' in x or 'NOISE' in x or 'TOTAL' in x]:
-        src_phot_table[key].info.format                 = '%.3e'
-    
     return src_phot_table
 
-def    background (IMAGE, DILATE_SIZE=11, NPIXEL=5, SIGMA=5, SNR=5):
 
+# ---------------------------------------------------------------------------
+# Background estimation
+# ---------------------------------------------------------------------------
+
+def background(IMAGE, BACK_SIZE=64, BACK_FILTERSIZE=3):
+    """Estimate the global RMS of a science image using sep background.
+
+    Parameters
+    ----------
+    IMAGE : 2-D array
+        Science image data.
+    BACK_SIZE : int
+        Background mesh size in pixels.
+    BACK_FILTERSIZE : int
+        Background filter size.
+
+    Returns
+    -------
+    float
+        Global background RMS.
     """
-    Extracts the global RMS of an image
-    """
+    data = np.ascontiguousarray(IMAGE.astype(np.float64))
+    bkg  = sep.Background(data, bw=BACK_SIZE, bh=BACK_SIZE,
+                          fw=BACK_FILTERSIZE, fh=BACK_FILTERSIZE)
+    return bkg.globalrms
 
-    mask                = photutils.make_source_mask(IMAGE, SNR, npixels=NPIXEL, dilate_size=DILATE_SIZE)
-    mean, median, std    = stats.sigma_clipped_stats(IMAGE, sigma=SIGMA, mask=mask)
-
-    return std
 
 def background_local(IMAGE, APERTURE):
+    """Compute sigma-clipped statistics inside a background annulus aperture.
 
+    Parameters
+    ----------
+    IMAGE : 2-D array
+        Science image data.
+    APERTURE : photutils aperture
+        Background annulus aperture object.
+
+    Returns
+    -------
+    tuple
+        (mean, median, std) of pixel values inside the aperture.
     """
-    Extracts the global RMS of an image
+    bkg_mask = APERTURE.to_mask(method='center')
+    bkg_data = bkg_mask.multiply(IMAGE)
+    aper_data = bkg_data[bkg_mask.data > 0]
+    return stats.sigma_clipped_stats(aper_data)
+
+
+# ---------------------------------------------------------------------------
+# Gain extraction
+# ---------------------------------------------------------------------------
+
+def get_gain(FITS, KEYWORD, LOGGER):
+    """Read detector gain from the FITS header.
+
+    Searches for common gain keywords (CCDGAIN, ADCGAIN, ATODGAIN).
+    Returns 1 if KEYWORD is None (un-calibrated mode).
+
+    Parameters
+    ----------
+    FITS : str
+        Path to the FITS file.
+    KEYWORD : str or None
+        Header keyword name, or None to use gain=1.
+    LOGGER : logging.Logger
+        Logger for error reporting.
+
+    Returns
+    -------
+    float
+        Gain value in e⁻/ADU.
     """
-
-    bkg_mask    = APERTURE.to_mask(method='center')
-    #bkg_mask    = bkg_mask[0]
-    bkg_data    = bkg_mask.multiply(IMAGE)
-    mask_idx     = bkg_mask.data > 0
-    aper_data     = bkg_data[mask_idx]
-
-    # Extract the statistics
-
-    mean, median, std = stats.sigma_clipped_stats(aper_data)
-
-    return mean, median, std
-
-def    get_gain(FITS, KEYWORD, LOGGER):
-
-    """
-    Extract the gain value from the header (unit: e-/ADU)
-    """
-
-
-    if KEYWORD         == None:
+    if KEYWORD is None:
         return 1
-    else:
-        try:
-            hdu        = fits.open(FITS)
-            if len(hdu) == 1:
-                header = hdu[0].header
-            elif len(hdu) > 1:
+
+    try:
+        with fits.open(FITS) as hdu:
+            header = hdu[0].header
+            if len(hdu) > 1:
                 header = hdu[0].header + hdu[1].header
-            elif len(hdu) > 2:
+            if len(hdu) > 2:
                 header = hdu[0].header + hdu[1].header + hdu[2].header
 
-            if 'CCDGAIN' in header.keys():
-                key_gain            = 'CCDGAIN'
-            elif 'ADCGAIN' in header.keys():
-                key_gain            = 'ADCGAIN'
-            elif 'ATODGAIN' in header.keys():
-                key_gain            = 'ATODGAIN'
+        for key in ('CCDGAIN', 'ADCGAIN', 'ATODGAIN', KEYWORD):
+            if key in header:
+                return float(header[key])
 
-            return header[key_gain]
-
-        except:
-            msg        = 'GAIN keyword ({gain}) not found'.format(gain=KEYWORD)
-            print(bcolors.BOLD + bcolors.FAIL + '\n{}\n'.format(msg) + bcolors.ENDC)
+        msg = f'Gain keyword ({KEYWORD}) not found in {FITS}'
+        print(bcolors.BOLD + bcolors.FAIL + f'\n{msg}\n' + bcolors.ENDC)
+        if LOGGER:
             LOGGER.error(msg)
-            sys.exit()
+        sys.exit(1)
 
-def hst_aperture_photometry(FITS, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, PIX2ARCSEC, RMS, FA=1):
+    except Exception as exc:
+        msg = f'Failed to read gain from {FITS}: {exc}'
+        print(bcolors.BOLD + bcolors.FAIL + f'\n{msg}\n' + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.error(msg)
+        sys.exit(1)
 
+
+# ---------------------------------------------------------------------------
+# HST photometry
+# ---------------------------------------------------------------------------
+
+def hst_aperture_photometry(FITS, POSITIONS, RADII, INNERANNULUS,
+                             OUTERANNULUS, PIX2ARCSEC, RMS, FA=1):
+    """Aperture photometry for HST drizzled images.
+
+    Computes the effective gain from EXPTIME and CCD gain keyword, applies
+    the correlated-noise correction factor for drizzled data, and delegates
+    to :func:`aperture_photometry`.
+
+    Parameters
+    ----------
+    FITS : str
+        HST drizzled FITS file path.
+    POSITIONS : array-like
+        (x, y) target pixel positions (1-indexed).
+    RADII : array-like
+        Aperture radii in arcseconds.
+    INNERANNULUS, OUTERANNULUS : array-like
+        Inner/outer background annulus radii in arcseconds.
+    PIX2ARCSEC : float
+        Pixel scale in arcsec/pixel.
+    RMS : float
+        Global image RMS.
+    FA : float
+        Correlated-noise correction (computed internally if not overridden).
+
+    Returns
+    -------
+    astropy.table.Table
+        Photometry table (see :func:`aperture_photometry`).
     """
-    Wrapper to perfrom aperture photometry on HST images
-    """
-
-    # Read FITS file
-
-    hdulist                    = fits.open(FITS)
-
-    hdu_header                = hdulist[0].header
-    if len(hdulist)         > 1:
-        try: 
-            hdulist[1].shape
-            hdu_header        += hdulist[1].header
-            hdu_data        = hdulist[1].data
-        except:
-            hdu_header        += hdulist[1].header
-            hdu_data        = hdulist[0].data
-    else:
-        hdu_data            = hdulist[0].data
-
-    # sources
-
-    radii_px                = RADII / PIX2ARCSEC
-    innerannulus_px            = INNERANNULUS / PIX2ARCSEC
-    outerannulus_px            = OUTERANNULUS / PIX2ARCSEC
-
-    # Zeropoint
-
-    zeropoint                = hst_zeropoint (hdu_header, 2*RADII)
-
-    # Effective gain
-    # Astrodrizzled images are in units electrons/s
-    # https://photutils.readthedocs.io/en/stable/api/photutils.utils.calc_total_error.html#photutils.utils.calc_total_error
-
-    if 'CCDGAIN' in hdu_header.keys():
-        key_gain            = 'CCDGAIN'
-    elif 'ADCGAIN' in hdu_header.keys():
-        key_gain            = 'ADCGAIN'
-    elif 'ATODGAIN' in hdu_header.keys():
-        key_gain            = 'ATODGAIN'
-    else:
-        msg                    = 'GAIN keyword not found.'
-        logger.error(msg)
-        print(bcolors.BOLD + bcolors.FAIL + msg + bcolors.ENDC)
-        sys.exit()
-
-    effective_gain            = hdu_header['EXPTIME'] * hdu_header[key_gain]
-
-    # Correlated noise correction factor
-    # http://www.ifa.hawaii.edu/~rgal/science/sextractor_notes.html
-
-    pixfrac                    = hdu_header['D001PIXF']
     try:
-        native_scale        = hst_scale(hdu_header['INSTRUME'], hdu_header['APERTURE'])
-    except:
-        native_scale        = hst_scale(hdu_header['INSTRUME'], None)
+        import pysynphot as pyS
+    except ImportError as exc:
+        raise ImportError(
+            "pysynphot is required for HST photometry. "
+            "Install with: pip install pysynphot"
+        ) from exc
 
-    scale                    = PIX2ARCSEC/native_scale
+    with fits.open(FITS) as hdulist:
+        hdu_header = hdulist[0].header
+        if len(hdulist) > 1:
+            try:
+                hdulist[1].shape
+                hdu_header += hdulist[1].header
+                hdu_data    = hdulist[1].data
+            except Exception:
+                hdu_header += hdulist[1].header
+                hdu_data    = hdulist[0].data
+        else:
+            hdu_data = hdulist[0].data
 
-    fa                        = pow( (scale/pixfrac) * (1.  - (scale / 3 / pixfrac)), 2) if scale < pixfrac else pow(1 - pixfrac / 3 / scale, 2)
+    radii_px          = np.asarray(RADII) / PIX2ARCSEC
+    innerannulus_px   = np.asarray(INNERANNULUS) / PIX2ARCSEC
+    outerannulus_px   = np.asarray(OUTERANNULUS) / PIX2ARCSEC
 
-    return aperture_photometry(hdu_data, POSITIONS, radii_px, innerannulus_px, outerannulus_px, RMS, GAIN=effective_gain, ZEROPOINT=zeropoint, FA=fa)
+    zeropoint_arr     = hst_zeropoint(hdu_header, 2 * np.asarray(RADII))
 
-def hst_make_cutout(FITS, COORD_OBS, COORD_EXP, RADII, RADII_INNERANNULUS, RADII_OUTERANNULUS, PIX2ARCSEC, OUTDIR):
-
-    """
-    Makes cuts outs of the aperture
-    """
-
-    # Processing fits file
-
-    hdulist            = fits.open(FITS)
-
-    header            = hdulist[0].header
-
-    if len(hdulist) > 1:
-        try: 
-            hdulist[1].shape
-            image    = hdulist[1].data
-        except:
-            image    = hdulist[0].data
+    # Effective gain: astrodrizzle images are in e⁻/s
+    for key in ('CCDGAIN', 'ADCGAIN', 'ATODGAIN'):
+        if key in hdu_header:
+            gain_key = key
+            break
     else:
-        image        = hdulist[0].data
+        raise KeyError(f'No gain keyword found in header of {FITS}')
 
-    image_shape        = np.shape(image)
+    effective_gain = hdu_header['EXPTIME'] * hdu_header[gain_key]
 
-    # Plotsettings
+    # Correlated-noise correction for drizzled images
+    pixfrac = hdu_header['D001PIXF']
+    try:
+        native_scale = hst_scale(hdu_header['INSTRUME'], hdu_header['APERTURE'])
+    except KeyError:
+        native_scale = hst_scale(hdu_header['INSTRUME'], None)
 
-    halfwidth        = 100
+    scale = PIX2ARCSEC / native_scale
+    fa    = ((scale / pixfrac) * (1. - scale / 3. / pixfrac))**2 \
+            if scale < pixfrac else (1. - pixfrac / 3. / scale)**2
 
-    xmin            = int(COORD_OBS[0])-halfwidth if int(COORD_OBS[0])-halfwidth >= 0 else 0
-    xmax            = int(COORD_OBS[0])+halfwidth if int(COORD_OBS[0])+halfwidth <= image_shape[0] else image_shape[0]
+    return aperture_photometry(hdu_data, POSITIONS, radii_px,
+                                innerannulus_px, outerannulus_px,
+                                RMS, GAIN=effective_gain,
+                                ZEROPOINT=zeropoint_arr, FA=fa)
 
-    ymin            = int(COORD_OBS[1])-halfwidth if int(COORD_OBS[1])-halfwidth >= 0 else 0
-    ymax            = int(COORD_OBS[1])+halfwidth if int(COORD_OBS[1])+halfwidth <= image_shape[1] else image_shape[1]
 
-    # Truncate image
+def hst_make_cutout(FITS, COORD_OBS, COORD_EXP, RADII, RADII_INNERANNULUS,
+                    RADII_OUTERANNULUS, PIX2ARCSEC, OUTDIR):
+    """Create a diagnostic multi-panel aperture cutout image for HST data.
 
-    image            = image[ymin:ymax, xmin:xmax]
+    Each panel shows the target region at a different aperture diameter,
+    with the aperture and background annulus circles overlaid.
 
-    image_temp        = image.flatten()
-    image_temp        = image_temp[~np.isnan(image_temp)]
+    Parameters
+    ----------
+    FITS : str
+        HST drizzled FITS file path.
+    COORD_OBS : tuple
+        Observed (x, y) centroid position (1-indexed pixels).
+    COORD_EXP : tuple
+        Expected (x, y) position from WCS (1-indexed pixels).
+    RADII : array-like
+        Aperture radii in arcseconds.
+    RADII_INNERANNULUS, RADII_OUTERANNULUS : array-like
+        Background annulus radii in arcseconds.
+    PIX2ARCSEC : float
+        Pixel scale in arcsec/pixel.
+    OUTDIR : str
+        Output directory for the PDF plot.
+    """
+    with fits.open(FITS) as hdulist:
+        header = hdulist[0].header
+        if len(hdulist) > 1:
+            try:
+                hdulist[1].shape
+                image = hdulist[1].data
+            except Exception:
+                image = hdulist[0].data
+        else:
+            image = hdulist[0].data
 
-    vmin            = np.array([np.percentile(image_temp, x) for x in range(50,90)])
-    vmin            = vmin[vmin > 0][5]
-    vmax            = np.percentile(image.flatten(), 99)
+    halfwidth   = 100
+    cx, cy      = int(COORD_OBS[0]), int(COORD_OBS[1])
+    ny, nx      = image.shape
+    xmin        = max(cx - halfwidth, 0)
+    xmax        = min(cx + halfwidth, nx)
+    ymin        = max(cy - halfwidth, 0)
+    ymax        = min(cy + halfwidth, ny)
 
-    plt.figure(1, figsize=(np.sqrt(2) * 9,9))
-    plt.subplots_adjust(hspace=0.2, wspace=0.3)
+    cutout      = image[ymin:ymax, xmin:xmax]
+    flat        = cutout.flatten()
+    flat        = flat[np.isfinite(flat) & (flat > 0)]
 
-    num_apertures    = len(RADII)
+    vmin        = np.percentile(flat, 55) if len(flat) > 0 else 1e-3
+    vmax        = np.percentile(flat, 99) if len(flat) > 0 else 1.0
 
-    for i in range(num_apertures):
+    num_apers   = len(RADII)
+    ncols       = 3
+    nrows       = int(np.ceil(num_apers / ncols))
 
-        ax            = plt.subplot(int(num_apertures/3) if num_apertures%3 == 0 else int(num_apertures/3) + 1, 3, i+1)
-        ax.imshow(image, cmap=plt.cm.binary, interpolation='Nearest', origin='lower', norm=LogNorm(vmin=vmin, vmax=vmax))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(np.sqrt(2) * 9, 9))
+    axes_flat = np.array(axes).flatten()
+
+    for i in range(num_apers):
+        ax = axes_flat[i]
+        ax.imshow(cutout, cmap='binary', interpolation='nearest',
+                  origin='lower', norm=LogNorm(vmin=vmin, vmax=vmax))
 
         ax.plot(halfwidth, halfwidth, marker='x', mew=5, color=color_green, ms=12)
 
         if len(COORD_OBS) > 0:
-            ax.errorbar( COORD_OBS[0] - int(COORD_EXP[0]) + halfwidth - 1, COORD_OBS[1] - int(COORD_EXP[1]) + halfwidth - 1, mew=5, marker='x', color=vigit_color_1, ms=12)
+            ox = COORD_OBS[0] - cx + halfwidth - 1
+            oy = COORD_OBS[1] - cy + halfwidth - 1
+            ax.errorbar(ox, oy, mew=5, marker='x', color=vigit_color_1, ms=12)
 
-        circle1        = plt.Circle((halfwidth, halfwidth), RADII[i]/PIX2ARCSEC, ls='solid',  lw=5,  fc='None', ec=vigit_color_1)
-        circle2        = plt.Circle((halfwidth, halfwidth), RADII_INNERANNULUS[i]/PIX2ARCSEC, ls='solid', lw=5, fc='None', ec=color_yellow)
-        circle3        = plt.Circle((halfwidth, halfwidth), RADII_OUTERANNULUS[i]/PIX2ARCSEC, ls='solid', lw=5, fc='None', ec=color_yellow)
+        for r, color in [(RADII[i] / PIX2ARCSEC, vigit_color_1),
+                         (RADII_INNERANNULUS[i] / PIX2ARCSEC, color_yellow),
+                         (RADII_OUTERANNULUS[i] / PIX2ARCSEC, color_yellow)]:
+            circle = plt.Circle((halfwidth, halfwidth), r,
+                                 ls='solid', lw=5, fc='None', ec=color)
+            ax.add_patch(circle)
 
-        ax.add_patch(circle1)
-        ax.add_patch(circle2)
-        ax.add_patch(circle3)
-
+        ax.set_xlim(0, 2 * halfwidth)
+        ax.set_ylim(0, 2 * halfwidth)
         plt.setp(ax.get_xticklabels(), visible=False)
         plt.setp(ax.get_yticklabels(), visible=False)
-
         for line in ax.yaxis.get_majorticklines() + ax.xaxis.get_majorticklines():
             line.set_markersize(0)
 
-        ax.set_xlim(0, 2*halfwidth)
-        ax.set_ylim(0, 2*halfwidth)
+        diam_str = f"\\textbf{{Diameter:}} $\\mathbf{{ {2*RADII[i]:.1f}''}}$"
+        ax.text(0.05, 0.95, diam_str, ha='left', va='top',
+                transform=ax.transAxes, fontsize=legend_size - 4,
+                path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
 
-        ax.text(left+0.05, top-0.05, "\\textbf{{Diameter:}} $\\mathbf{{ {value}''}}$".format(value=2*RADII[i]), ha='left', va='top', transform=ax.transAxes, fontsize=legend_size-4, path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
+    for j in range(num_apers, len(axes_flat)):
+        axes_flat[j].set_visible(False)
 
-    ax.text(right-0.05, bottom+0.125,  "\\textbf{Host centroid}", ha='right', va='bottom',        transform=ax.transAxes, color=color_green, fontsize=legend_size-4, path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
-    ax.text(right-0.05, bottom+0.05, "\\textbf{Transient position}",   ha='right', va='bottom',    transform=ax.transAxes, color=vigit_color_1,  fontsize=legend_size-4, path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
+    ax_last = axes_flat[num_apers - 1]
+    ax_last.text(0.95, 0.175, "\\textbf{Host centroid}", ha='right', va='bottom',
+                  transform=ax_last.transAxes, color=color_green,
+                  fontsize=legend_size - 4,
+                  path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
+    ax_last.text(0.95, 0.05, "\\textbf{Transient position}", ha='right', va='bottom',
+                  transform=ax_last.transAxes, color=vigit_color_1,
+                  fontsize=legend_size - 4,
+                  path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
 
-    plt.savefig(OUTDIR + FITS.replace('.fits', '.pdf'), dpi=600)
+    plt.savefig(Path(OUTDIR) / (Path(FITS).stem + '.pdf'), dpi=600)
+    plt.close()
 
-    return None
 
 def hst_cog(FITS, POSITIONS, INNERANNULUS, OUTERANNULUS, PIX2ARCSEC, RMS, OUTDIR):
+    """Compute and plot the curve of growth for an HST source.
 
-    apertures            = np.linspace(0.2, 5, 20)
-    innerannulus         = INNERANNULUS * apertures
-    outerannulus         = OUTERANNULUS * apertures
+    Measures the source brightness at 20 logarithmically-spaced aperture
+    diameters from 0.2 to 5 arcsec.  Monte Carlo resampling propagates
+    asymmetric uncertainties to derive median brightness and scatter.
 
-    photometry           = hst_aperture_photometry(FITS, POSITIONS, apertures / 2., innerannulus / 2., outerannulus / 2., PIX2ARCSEC, RMS)
+    Parameters
+    ----------
+    FITS : str
+        HST drizzled FITS file path.
+    POSITIONS : array-like
+        (x, y) target pixel position (1-indexed).
+    INNERANNULUS, OUTERANNULUS : float
+        Scaling factors for the background annulus relative to aperture radius.
+    PIX2ARCSEC : float
+        Pixel scale in arcsec/pixel.
+    RMS : float
+        Global image RMS.
+    OUTDIR : str
+        Output directory for plots and data tables.
+    """
+    apertures    = np.linspace(0.2, 5, 20)
+    inner        = INNERANNULUS * apertures
+    outer        = OUTERANNULUS * apertures
 
-    mags                 = np.array([photometry['MAG_APER_' + str(i)][0] for i in range(len(apertures))])
-    mags_errp            = np.array([photometry['MAGERRP_APER_' + str(i)][0] for i in range(len(apertures))])
-    mags_errm            = np.array([photometry['MAGERRM_APER_' + str(i)][0] for i in range(len(apertures))])
-    mask_det             = np.where(mags_errp != 0.)[0]
-    mask_ul              = np.where(mags_errp == 0.)[0]
+    photometry   = hst_aperture_photometry(FITS, POSITIONS,
+                                            apertures / 2., inner / 2., outer / 2.,
+                                            PIX2ARCSEC, RMS)
 
-    output                = []
-    i                    = 0
+    mags         = np.array([photometry['MAG_APER_' + str(i)][0]
+                              for i in range(len(apertures))])
+    mags_errp    = np.array([photometry['MAGERRP_APER_' + str(i)][0]
+                              for i in range(len(apertures))])
+    mags_errm    = np.array([photometry['MAGERRM_APER_' + str(i)][0]
+                              for i in range(len(apertures))])
 
-    mags_det             = mags[mask_det]
-    mags_errp_det        = mags_errp[mask_det]
-    mags_errm_det        = mags_errm[mask_det]
+    mask_det     = np.isfinite(mags_errp) & (mags_errp != 0.)
+    mask_ul      = ~mask_det
 
-    cog_data            = table.Table([apertures, [np.round(x, 3) for x in mags], [np.round(x, 3) for x in mags_errp], [np.round(x, 3) for x in mags_errm]], names=('DIAMETER', 'MAG', 'MAGERRP', 'MAGERRM'))
-    ascii.write(cog_data, OUTDIR + FITS.replace('.fits', '_cog_data.ascii'), overwrite=True, format='no_header')
-    
-    # MonteCarlo
+    # Save raw CoG data
+    cog_data = table.Table(
+        [apertures, np.round(mags, 3), np.round(mags_errp, 3), np.round(mags_errm, 3)],
+        names=('DIAMETER', 'MAG', 'MAGERRP', 'MAGERRM'))
+    outdir_path = Path(OUTDIR)
+    base        = Path(FITS).stem
+    ascii.write(cog_data, outdir_path / (base + '_cog_data.ascii'),
+                overwrite=True, format='no_header')
 
-    values                = []
+    # Monte Carlo error propagation (vectorized)
+    niter        = 10000
+    mags_d       = mags[mask_det]
+    errp_d       = mags_errp[mask_det]
+    errm_d       = mags_errm[mask_det]
 
-    niter                = 10000
+    u_mc         = np.random.uniform(size=(niter, len(mags_d)))
+    sign         = u_mc < 0.5
+    values       = np.where(sign,
+                            stats_scipy.norm.ppf(u_mc, mags_d, errm_d),
+                            stats_scipy.norm.ppf(u_mc, mags_d, errp_d))
+    cog_stats    = stats.sigma_clipped_stats(values, axis=0)[1]  # median per MC iter
 
-    for i in range(len(mags_det)):
+    cog_median   = float(np.median(cog_stats))
+    cog_std      = float(np.std(cog_stats))
 
-        u                 = np.random.uniform(size = niter)
-        v                 = np.where(u < 0.5, stats_scipy.norm.ppf(u, mags_det[i], mags_errm_det[i]),
-                            stats_scipy.norm.ppf(u, mags_det[i], mags_errp_det[i]))
-
-        values.append(v)
-
-    values                = np.array(values)
-
-    cog_stats            = [stats.sigma_clipped_stats(values[:,i])[1] for i in range(values.shape[1])]
-
-    cog_stats_table        = table.Table(np.array([np.mean(cog_stats), np.median(cog_stats), np.std(cog_stats), niter]), names=('MEAN', 'MEDIAN', 'STD', 'NITER'))
-    ascii.write(cog_stats_table, OUTDIR + FITS.replace('.fits', '_cog_stat.ascii'), overwrite=True)
+    cog_stats_table = table.Table(
+        [[cog_median], [cog_median], [cog_std], [niter]],
+        names=('MEAN', 'MEDIAN', 'STD', 'NITER'))
+    ascii.write(cog_stats_table, outdir_path / (base + '_cog_stat.ascii'),
+                overwrite=True)
 
     # Plot
+    fig, ax = plt.subplots(1, 1, figsize=(9 * np.sqrt(2.), 9))
 
-    plt.figure(2)
-    ax                    = plt.subplot(111)
-
-    ax.axhspan(np.median(cog_stats) - 3*np.std(cog_stats), np.median(cog_stats) + 3*np.std(cog_stats), color='0.95')
-    ax.axhspan(np.median(cog_stats) - 2*np.std(cog_stats), np.median(cog_stats) + 2*np.std(cog_stats), color='0.85')
-    ax.axhspan(np.median(cog_stats) - np.std(cog_stats), np.median(cog_stats) + np.std(cog_stats), color='0.75')
-    ax.axhline(np.median(cog_stats), lw=3, color='0.75')
+    for sigma, shade in [(3, '0.95'), (2, '0.85'), (1, '0.75')]:
+        ax.axhspan(cog_median - sigma * cog_std,
+                   cog_median + sigma * cog_std, color=shade)
+    ax.axhline(cog_median, lw=3, color='0.75')
 
     ax.errorbar(apertures, mags, mags_errp, ms=0, lw=3, color=vigit_color_12)
-    ax.errorbar(apertures[mask_det], mags[mask_det], [mags_errp[mask_det], mags_errm[mask_det]], marker='o', ms=9, lw=0, color=vigit_color_12, capsize=0, elinewidth=2)
-    ax.errorbar(apertures[mask_ul],  mags[mask_ul],                                              marker='v', ms=9, lw=0, color=vigit_color_12, mec=vigit_color_12)
+    ax.errorbar(apertures[mask_det], mags[mask_det],
+                [mags_errp[mask_det], mags_errm[mask_det]],
+                marker='o', ms=9, lw=0, color=vigit_color_12,
+                capsize=0, elinewidth=2)
+    if mask_ul.any():
+        ax.errorbar(apertures[mask_ul], mags[mask_ul],
+                    marker='v', ms=9, lw=0, color=vigit_color_12,
+                    mec=vigit_color_12)
 
-    ax.text(left+0.05, top-0.05, 'median = {median:.3f}, std = {std:.3f}'.format(median=np.median(cog_stats), std=np.std(cog_stats)), ha='left', va='top', fontsize=label_size, transform=ax.transAxes, color='k')
-
+    ax.text(0.05, 0.95,
+            f'median = {cog_median:.3f}, std = {cog_std:.3f}',
+            ha='left', va='top', fontsize=label_size, transform=ax.transAxes,
+            color='k')
     ax.set_xlabel("Diameter (arcsec)")
     ax.set_ylabel('Brightness (mag, AB)')
-
     ax.set_xlim(0, apertures[-1])
-    ax.set_ylim(max([photometry['MAG_APER_' + str(i)] for i in range(len(apertures))]), min([photometry['MAG_APER_' + str(i)] for i in range(len(apertures))]) - 0.5)
+    valid_mags = mags[np.isfinite(mags)]
+    if len(valid_mags):
+        ax.set_ylim(np.nanmax(mags), np.nanmin(mags) - 0.5)
 
-    plt.savefig(OUTDIR + FITS.replace('.fits', '_cog.pdf'))
-    
-    return None
+    plt.savefig(outdir_path / (base + '_cog.pdf'))
+    plt.close()
+
 
 def hst_scale(INSTRUMENT, MODE):
+    """Return the native (pre-drizzle) pixel scale for an HST instrument.
 
+    Parameters
+    ----------
+    INSTRUMENT : str
+        HST instrument name (ACS, WFC3, WFPC2, NICMOS).
+    MODE : str or None
+        Detector / aperture name (e.g., 'WFC', 'UVIS', 'IR').
+
+    Returns
+    -------
+    float
+        Native pixel scale in arcsec/pixel.
     """
-    Library of the HST pixel sizes before drizzling.
-    """
+    scales = {
+        'NICMOS': 0.05071,
+        'WFPC2':  0.10,
+    }
+    if INSTRUMENT in scales:
+        return scales[INSTRUMENT]
 
-    if INSTRUMENT     == 'NICMOS':
-        # http://www.stsci.edu/hst/stis/design/detectors/
-        return 0.05071
-
-    if INSTRUMENT     == 'ACS':
-        # http://www.stsci.edu/hst/acs/documents/handbooks/cycle19/c03_intro_acs6.html
-        if 'WFC' in MODE:
+    if INSTRUMENT == 'ACS':
+        if MODE and 'WFC' in MODE:
             return 0.05
-        elif MODE     == 'HRC':
+        if MODE == 'HRC':
             return 0.0265
-        elif MODE     == 'SBC':
+        if MODE == 'SBC':
             return 0.032
-        else:
-            print(bcolors.FAIL + 'MODE {mode} not recognised for {instrument}'.format(mode=MODE, instrument=INSTRUMENT) + bcolors.ENDC)
-            sys.exit()
+        raise ValueError(f'Unknown ACS mode: {MODE}')
 
-    elif INSTRUMENT     == 'WFPC2':
-        return 0.10
-
-    elif INSTRUMENT == 'WFC3':
-        # http://www.stsci.edu/hst/wfc3/documents/handbooks/currentDHB/wfc3_dhb.pdf
-        print(MODE)
-        if 'UVIS' in MODE:
+    if INSTRUMENT == 'WFC3':
+        if MODE and 'UVIS' in MODE:
             return 0.040
-        if 'IR' in MODE:
+        if MODE and 'IR' in MODE:
             return 0.13
-        else:
-            print(bcolors.FAIL + 'MODE {mode} not recognised for {instrument}'.format(mode=MODE, instrument=INSTRUMENT) + bcolors.ENDC)
-            sys.exit()
+        raise ValueError(f'Unknown WFC3 mode: {MODE}')
 
-def hst_zeropoint (HEADER, DIAMETER):
+    raise ValueError(f'Unknown HST instrument: {INSTRUMENT}')
 
+
+def hst_zeropoint(HEADER, DIAMETER):
+    """Compute HST AB zeropoint with pysynphot aperture correction.
+
+    Uses PHOTFLAM and PHOTPLAM from the FITS header to derive the infinite-
+    aperture zeropoint, then calls pysynphot to compute the enclosed-flux
+    fraction at the requested aperture diameter(s).
+
+    Parameters
+    ----------
+    HEADER : fits.Header
+        FITS header containing HST photometric keywords.
+    DIAMETER : array-like
+        Aperture diameters in arcseconds. Diameters >= 4'' use no correction.
+
+    Returns
+    -------
+    np.ndarray
+        AB zeropoints (one per aperture diameter) including aperture correction.
     """
-    Extracts the zeropoint from the fits header and computes the aperture correction with PySynphot.
-    """
-
-    zeropoints                = -2.5 * np.log10( HEADER['PHOTFLAM'] ) - 5 * np.log10(HEADER['PHOTPLAM']) - 2.408
-
-    # Compute aperture correction
-    # Needed if the extraction aperture < 4'' (for larger radii pysynphot crashes. HST considers 5'' as infinite)
-    # A spectrum needs to be assumed to compute the aperture correction
-    # Varying the temperature from 1000 to 40000 K, alters the AP correction by <~1%
-
-    # mag = -2.5 * log10(F / correction_inf) + ZP
-    #     = -2.5 * log10(F) + ZP - 2.5 * log10(correction_inf) 
-    # correction_inf == flux ratio between an aperture with a given finite diameter and an aperture with an infinite diameter
-
-    spec_bb                    = pyS.BlackBody(10000)
-
     try:
-        filter                = HEADER['FILTER1'] if 'CLEAR' in HEADER['FILTER2'] else HEADER['FILTER2']
-    except:
+        import pysynphot as pyS
+    except ImportError as exc:
+        raise ImportError(
+            "pysynphot is required for HST zeropoints. "
+            "Install with: pip install pysynphot"
+        ) from exc
+
+    zp_inf = (-2.5 * np.log10(HEADER['PHOTFLAM'])
+              - 5. * np.log10(HEADER['PHOTPLAM'])
+              - 2.408)
+
+    spec_bb  = pyS.BlackBody(10000)
+    DIAMETER = np.atleast_1d(np.where(np.array(DIAMETER) < 4, DIAMETER, 4.0))
+
+    # Determine filter name
+    try:
+        filt = HEADER['FILTER1'] if 'CLEAR' in HEADER['FILTER2'] else HEADER['FILTER2']
+    except KeyError:
+        filt = HEADER.get('FILTER', HEADER.get('FILTNAM1', 'CLEAR'))
+
+    ap_correction = np.ones(len(DIAMETER))
+
+    if HEADER.get('INSTRUME', '').upper() not in ('WFPC2', 'NICMOS'):
         try:
-            filter                = HEADER['FILTER']
-        except:
-            filter                = HEADER['FILTNAM1']
+            photmode = HEADER['PHOTMODE'].replace(' ', ',')
+            bandprops = [
+                pyS.ObsBandpass(f'{photmode},aper#{d:.2f}')
+                for d in DIAMETER
+            ]
+            bandref = pyS.ObsBandpass(f'{photmode},aper#4.00')
+        except Exception:
+            mjd = int(time.Time(HEADER['DATE-OBS'], format='isot',
+                                scale='utc').jd)
+            inst = HEADER['INSTRUME']
+            det  = HEADER['APERTURE']
+            bandprops = [
+                pyS.ObsBandpass(f'{inst},{det},{filt},mjd#{mjd},aper#{d:.2f}')
+                for d in DIAMETER
+            ]
+            bandref = pyS.ObsBandpass(
+                f'{inst},{det},{filt},mjd#{mjd},aper#4.00')
 
-    DIAMETER                = [x if x < 4 else 4 for x in DIAMETER]
-
-    if HEADER['INSTRUME'].upper() not in ['WFPC2', 'NICMOS']:
-
-        try:
-            bandprops            = [pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
-                                                    aperture=x,
-                                                    photmode=HEADER['PHOTMODE'].replace(' ', ','),
-                                                    ))
-                                                    for x in DIAMETER]
-
-            bandprops_ref        = pyS.ObsBandpass('{photmode},aper#{aperture:.2f}'.format(
-                                                    aperture=4.0,
-                                                    photmode=HEADER['PHOTMODE'].replace(' ', ',')
-                                                    ))
-        except:
-            bandprops            = [pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
-                                                    aperture=x,
-                                                    detector=HEADER['APERTURE'],
-                                                    filter=filter,
-                                                    instrument=HEADER['INSTRUME'],
-                                                    mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
-                                                    ))
-                                                    for x in DIAMETER]
-
-            bandprops_ref        = pyS.ObsBandpass('{instrument},{detector},{filter},mjd#{mjd},aper#{aperture:.2f}'.format(
-                                                    aperture=4.0,
-                                                    detector=HEADER['APERTURE'],
-                                                    filter=filter,
-                                                    instrument=HEADER['INSTRUME'],
-                                                    mjd=int(time.Time(HEADER['DATE-OBS'], format='isot', scale='utc').jd)
-                                                    ))
-
-        ap_correction            = np.ones(len(DIAMETER))*1.0
-
-        for i in range(len(DIAMETER)):
-            if DIAMETER[i] < 4.:
-                ap_correction[i]= pyS.Observation(spec_bb, bandprops[i]).countrate() / pyS.Observation(spec_bb, bandprops_ref).countrate()
-            else:
-                ap_correction[i]= 1
-
-    elif HEADER['INSTRUME'].upper() in ['WFPC2', 'NICMOS']:
-
-        print (bcolors.WARNING + 'Aperture correction of the {} camera is not tabulated in the pySynphot.'.format(HEADER['INSTRUME'].upper()))
-        print (                  'The AP correction is -0.1 mag for a circulat aperture with a radius of 0.5".')
-        print (                  'This value needs to be added by hand to the photometry!' + bcolors.ENDC)
-
-        ap_correction            = np.ones(len(DIAMETER))*1.0
-
-    # elif HEADER['INSTRUME'].upper() == 'WFPC2':
-
-    #     print (bcolors.WARNING + 'Aperture correction of the WFPC2 camera is not tabulated in the pySynphot.')
-    #     print (                  'The AP correction is -0.1 mag for a circulat aperture with a radius of 0.5".')
-    #     print (                  'This value needs to be added by hand to the photometry!' + bcolors.ENDC)
-
-    #     ap_correction            = 1
-
-
-
-    ap_correction_mag        = -2.5 * np.log10(ap_correction)
-
-    return zeropoints - ap_correction_mag
-
-def local_sequence(CAT, AUTO=False, FILENAME=None, FITS='', LOGGER=None, LOWER=10, PATH='', UPPER=90):
-
-    """
-    Select stars for local sequence
-    """
-
-    if FILENAME                == None:
-
-        print(bcolors.FAIL + 'Filename of the local sequence not specified' + bcolors.ENDC)
-        sys.exit()
-
-    # Image cuts
-
-    instrument_settings        = table.Table(names=('TELESCOPE', 'FILTER', 'MAG_BRIGHT', 'MAG_FAINT'), dtype=('S100', 'S100', 'f', 'f'))
-    instrument_settings.add_row(['PanSTARRS', 'g', -18, -13])
-    instrument_settings.add_row(['PanSTARRS', 'r', -18, -13])
-    instrument_settings.add_row(['PanSTARRS', 'i', -18, -13])
-    instrument_settings.add_row(['PanSTARRS', 'z', -18, -12])
-    instrument_settings.add_row(['PanSTARRS', 'y', -18, -12])
-    instrument_settings.add_row(['2MASS', 'J', -10, -6])
-    instrument_settings.add_row(['2MASS', 'H', -10, -6])
-    instrument_settings.add_row(['2MASS', 'K', -10, -6.5])
-    instrument_settings.add_row(['UKIDSS', 'J', -16, -11])
-    instrument_settings.add_row(['UKIDSS', 'H', -16, -11])
-    instrument_settings.add_row(['UKIDSS', 'K', -16, -11])
-    instrument_settings.add_row(['UKIDSS', 'Y', -16, -8])
-    instrument_settings.add_row(['SDSS', 'u', -7, -3])
-    instrument_settings.add_row(['SDSS', 'g', -10, -3])
-    instrument_settings.add_row(['SDSS', 'r', -10, -3])
-    instrument_settings.add_row(['SDSS', 'i', -10, -4])
-    instrument_settings.add_row(['SDSS', 'z', -10, -4])
-
-    if AUTO:
-
-        instrument_telescope= FITS.split('_')[1]
-        instrument_filter    = [x for x in FITS.replace('.fits', '').split('_') if len(x) == 1][0]
-
-        auto_mag_bright        = instrument_settings['MAG_BRIGHT'][(instrument_telescope == instrument_settings['TELESCOPE']) & (instrument_filter == instrument_settings['FILTER'])][0]
-        auto_mag_faint        = instrument_settings['MAG_FAINT'] [(instrument_telescope == instrument_settings['TELESCOPE']) & (instrument_filter == instrument_settings['FILTER'])][0]
-
-        print(bcolors.OKGREEN + 'Lower: ' + str(np.round(auto_mag_bright, 2)) + bcolors.ENDC)
-        print(bcolors.OKGREEN + 'Upper: ' + str(np.round(auto_mag_faint,  2)) + bcolors.ENDC)
-
-        mask_good            = np.where((auto_mag_bright <= CAT['MAG_INS']) & (CAT['MAG_INS'] <= auto_mag_faint))[0]
-
-        LOGGER.info('Magnitude range: {magbright:.2f} - {magfaint:.2f}'.format(magbright=auto_mag_bright, magfaint=auto_mag_faint))
-
-        print(bcolors.OKGREEN + 'Number of stars: ' + str(len(mask_good)) + '\n' + bcolors.ENDC)
-
-        data_x                = CAT['MAG_INS'][mask_good]
-        data_y                = CAT['MAG_CAT'][mask_good]
-        data_y_err            = CAT['MAGERR_CAT'][mask_good]
-
-        if all(CAT['MAGERR_CAT']) != 0:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y, err: (y - fitfunc(p, x)) / err
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y, data_y_err), full_output=True)
-
-        else:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y: (y - fitfunc(p, x))
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y), full_output=True)
-
-        pfinal                = out[0]
-        cont_direct            = pfinal[0]
-
-        # Diagnostic plot: instrumental vs. apparent magnitude
-
-        print(bcolors.OKGREEN + '\nGenerate diagnostic plot to remove stars' + bcolors.ENDC)
-
-        plt.figure(2, figsize=(9*np.sqrt(2.),9))
-
-        loc_ax                = plt.subplot(111)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=20, color=vigit_color_12, alpha=0.25, zorder=0)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=2, color=vigit_color_12, zorder=1)
-
-        loc_ax.errorbar(CAT['MAG_INS'], CAT['MAG_CAT'], CAT['MAGERR_CAT'], CAT['MAGERR_INS'], lw=0, ms=10, marker='o', color='0.75', elinewidth=2, capsize=0, zorder=2)
-        loc_ax.errorbar(CAT['MAG_INS'][mask_good], CAT['MAG_CAT'][mask_good], CAT['MAGERR_CAT'][mask_good], CAT['MAGERR_INS'][mask_good], lw=0, ms=10, marker='o', color='k', elinewidth=2, capsize=0, zorder=3)
-
-        loc_ax.axvline(auto_mag_bright, color='k', ls='--', zorder=4)
-        loc_ax.axvline(auto_mag_faint, color='k', ls='--', zorder=4)
-
-        loc_ax.set_xlabel("Instrumental magnitude (mag)")
-        loc_ax.set_ylabel("Apparent magnitude (mag)")
-
-        if len(CAT['MAG_CAT']) > 1:
-            loc_ax.set_xlim(min(CAT['MAG_INS'])-0.2, min(max(CAT['MAG_INS']), 0)+0.2)
-            loc_ax.set_ylim(min(CAT['MAG_CAT'])-0.2, max(CAT['MAG_CAT'])+0.2)
-        else:
-            loc_ax.set_xlim(CAT['MAG_INS']-0.2, CAT['MAG_INS']+0.2)
-            loc_ax.set_ylim(CAT['MAG_CAT']-0.2, CAT['MAG_CAT']+0.2)
-
-        loc_ax.grid(True)
-        plt.savefig(PATH+FITS.replace('.fits', '_std.pdf'), dpi=600)
-        plt.close()
-
-        ascii.write(np.array([CAT['XWIN_IMAGE'][mask_good], CAT['YWIN_IMAGE'][mask_good],
-            CAT['ALPHAWIN_J2000'][mask_good], CAT['DELTAWIN_J2000'][mask_good],
-            CAT['MAG_CAT'][mask_good], CAT['MAGERR_CAT'][mask_good]]).T,
-            FILENAME,
-            names=['XWIN_IMAGE', 'YWIN_IMAGE', 'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'MAG', 'MAG_ERR'], overwrite=True)
-
-    elif (LOWER == 0. and UPPER == 100):
-
-        data_x                = CAT['MAG_INS']
-        data_y                = CAT['MAG_CAT']
-        data_y_err            = CAT['MAGERR_CAT']
-
-        if all(CAT['MAGERR_CAT']) != 0:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y, err: (y - fitfunc(p, x)) / err
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y, data_y_err), full_output=True)
-
-        else:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y: (y - fitfunc(p, x))
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y), full_output=True)
-
-        pfinal                = out[0]
-        cont_direct            = pfinal[0]
-
-        # Diagnostic plot: instrumental vs. apparent magnitude
-
-        print(bcolors.OKGREEN + '\nGenerate diagnostic plot to remove stars' + bcolors.ENDC)
-
-        plt.figure(2, figsize=(9*np.sqrt(2.),9))
-
-        loc_ax                = plt.subplot(111)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=20, color=vigit_color_12, alpha=0.25, zorder=0)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=2, color=vigit_color_12, zorder=1)
-
-        loc_ax.errorbar(CAT['MAG_INS'], CAT['MAG_CAT'], CAT['MAGERR_CAT'], CAT['MAGERR_INS'], lw=0, ms=10, marker='o', color='k', elinewidth=2, capsize=0, zorder=3)
-
-        loc_ax.set_xlabel("Instrumental magnitude (mag)")
-        loc_ax.set_ylabel("Apparent magnitude (mag)")
-
-        if len(CAT['MAG_CAT']) > 1:
-            loc_ax.set_xlim(min(CAT['MAG_INS'])-0.2, min(max(CAT['MAG_INS']), 0)+0.2)
-            loc_ax.set_ylim(min(CAT['MAG_CAT'])-0.2, max(CAT['MAG_CAT'])+0.2)
-        else:
-            loc_ax.set_xlim(CAT['MAG_INS']-0.2, CAT['MAG_INS']+0.2)
-            loc_ax.set_ylim(CAT['MAG_CAT']-0.2, CAT['MAG_CAT']+0.2)
-
-        loc_ax.grid(True)
-        plt.savefig(PATH+FITS.replace('.fits', '_std.pdf'), dpi=600)
-        plt.close()
-
-        ascii.write(np.array([CAT['XWIN_IMAGE'], CAT['YWIN_IMAGE'],
-            CAT['ALPHAWIN_J2000'], CAT['DELTAWIN_J2000'],
-            CAT['MAG_CAT'], CAT['MAGERR_CAT']]).T,
-            FILENAME,
-            names=['XWIN_IMAGE', 'YWIN_IMAGE', 'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'MAG', 'MAG_ERR'], overwrite=True)
-
+        count_ref = pyS.Observation(spec_bb, bandref).countrate()
+        for i, (d, bp) in enumerate(zip(DIAMETER, bandprops)):
+            if d < 4.:
+                ap_correction[i] = (pyS.Observation(spec_bb, bp).countrate()
+                                    / count_ref)
     else:
-        # Manual
+        print(bcolors.WARNING
+              + f'Aperture correction for {HEADER["INSTRUME"]} not in pysynphot.'
+              + '\nThe AP correction is ~−0.1 mag for r=0.5\". Add by hand.'
+              + bcolors.ENDC)
 
-        if len(CAT['MAG_INS']) > 10:
-            mask_good        = np.where((np.percentile(CAT['MAG_INS'], LOWER) <= CAT['MAG_INS']) & (CAT['MAG_INS'] <= np.percentile(CAT['MAG_INS'], UPPER)))[0]
+    ap_correction_mag = -2.5 * np.log10(ap_correction)
+    return zp_inf - ap_correction_mag
+
+
+# ---------------------------------------------------------------------------
+# Local sequence selection
+# ---------------------------------------------------------------------------
+
+def local_sequence(CAT, AUTO=False, FILENAME=None, FITS='', LOGGER=None,
+                   LOWER=10, PATH='', UPPER=90):
+    """Select comparison stars for building the photometric local sequence.
+
+    In AUTO mode the magnitude range is determined from a lookup table of
+    telescope/filter combinations.  In interactive mode the user is prompted
+    to apply custom magnitude cuts.
+
+    Parameters
+    ----------
+    CAT : astropy.table.Table
+        Cross-matched catalog with columns MAG_INS, MAG_CAT, MAGERR_CAT,
+        MAGERR_INS, XWIN_IMAGE, YWIN_IMAGE, ALPHAWIN_J2000, DELTAWIN_J2000.
+    AUTO : bool
+        Use automatic magnitude range from instrument lookup table.
+    FILENAME : str
+        Output file path for the cleaned local sequence catalog.
+    FITS : str
+        Science FITS filename (used to parse telescope/filter for AUTO mode).
+    LOGGER : logging.Logger, optional
+        Logger instance.
+    LOWER : float
+        Lower percentile cut on instrumental magnitude (manual mode).
+    PATH : str
+        Directory for diagnostic plot output.
+    UPPER : float
+        Upper percentile cut on instrumental magnitude (manual mode).
+
+    Returns
+    -------
+    dict
+        {'NUMSTARS': int, 'CAT': astropy.table.Table}
+    """
+    if FILENAME is None:
+        print(bcolors.FAIL + 'Filename of the local sequence not specified'
+              + bcolors.ENDC)
+        sys.exit(1)
+
+    instrument_settings = table.Table(
+        names=('TELESCOPE', 'FILTER', 'MAG_BRIGHT', 'MAG_FAINT'),
+        dtype=('U100', 'U100', 'f', 'f'))
+    for row in [
+        ('PanSTARRS', 'g', -18, -13), ('PanSTARRS', 'r', -18, -13),
+        ('PanSTARRS', 'i', -18, -13), ('PanSTARRS', 'z', -18, -12),
+        ('PanSTARRS', 'y', -18, -12),
+        ('2MASS', 'J', -10, -6), ('2MASS', 'H', -10, -6),
+        ('2MASS', 'K', -10, -6.5),
+        ('UKIDSS', 'J', -16, -11), ('UKIDSS', 'H', -16, -11),
+        ('UKIDSS', 'K', -16, -11), ('UKIDSS', 'Y', -16, -8),
+        ('SDSS', 'u', -7, -3), ('SDSS', 'g', -10, -3),
+        ('SDSS', 'r', -10, -3), ('SDSS', 'i', -10, -4),
+        ('SDSS', 'z', -10, -4),
+    ]:
+        instrument_settings.add_row(row)
+
+    def _fit_zp(mag_ins, mag_cat, mag_cat_err):
+        """Fit a constant ZP offset between instrumental and catalog mags."""
+        pinit   = 0.
+        fitfunc = lambda p, x: p + x
+        if np.all(mag_cat_err != 0):
+            errfunc = lambda p, x, y, e: (y - fitfunc(p, x)) / e
+            out = optimize.leastsq(errfunc, pinit,
+                                   args=(mag_ins, mag_cat, mag_cat_err),
+                                   full_output=True)
         else:
-            mask_good        = np.where((np.percentile(CAT['MAG_INS'], 0)  <= CAT['MAG_INS']) & (CAT['MAG_INS'] <= np.percentile(CAT['MAG_INS'], 100)))[0]
+            errfunc = lambda p, x, y: y - fitfunc(p, x)
+            out = optimize.leastsq(errfunc, pinit,
+                                   args=(mag_ins, mag_cat), full_output=True)
+        return out[0][0]
 
-        data_x                = CAT['MAG_INS'][mask_good]
-        data_y                = CAT['MAG_CAT'][mask_good]
-        data_y_err            = CAT['MAGERR_CAT'][mask_good]
+    def _plot_std(cat_all, cat_sel, zp_offset, bright_cut, faint_cut,
+                  fignum, show=False):
+        """Diagnostic scatter plot: instrumental vs. catalog magnitude."""
+        plt.figure(fignum, figsize=(9 * np.sqrt(2.), 9))
+        ax = plt.subplot(111)
 
-        if all(CAT['MAGERR_CAT']) != 0:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y, err: (y - fitfunc(p, x)) / err
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y, data_y_err), full_output=True)
+        xlim = np.array([min(cat_all['MAG_INS']) - 0.2,
+                         max(cat_all['MAG_INS']) + 0.2])
+        ax.fill_between(xlim, xlim + zp_offset - 0.1, xlim + zp_offset + 0.1,
+                        color=vigit_color_12, alpha=0.25)
+        ax.plot(xlim, xlim + zp_offset, lw=2, color=vigit_color_12)
 
-        else:
-            pinit            = 0
-            fitfunc            = lambda p, x: p + x
-            errfunc            = lambda p, x, y: (y - fitfunc(p, x))
-            out                = optimize.leastsq(errfunc, pinit,args=(data_x, data_y), full_output=True)
+        ax.errorbar(cat_all['MAG_INS'], cat_all['MAG_CAT'],
+                    cat_all['MAGERR_CAT'], cat_all['MAGERR_INS'],
+                    lw=0, ms=10, marker='o', color='0.75',
+                    elinewidth=2, capsize=0)
+        ax.errorbar(cat_sel['MAG_INS'], cat_sel['MAG_CAT'],
+                    cat_sel['MAGERR_CAT'], cat_sel['MAGERR_INS'],
+                    lw=0, ms=10, marker='o', color='k',
+                    elinewidth=2, capsize=0)
 
-        pfinal                = out[0]
-        cont_direct            = pfinal[0]
+        if bright_cut is not None:
+            ax.axvline(bright_cut, color='k', ls='--')
+        if faint_cut is not None:
+            ax.axvline(faint_cut, color='k', ls='--')
 
-        # Diagnostic plot: instrumental vs. apparent magnitude
+        ax.set_xlabel("Instrumental magnitude (mag)")
+        ax.set_ylabel("Apparent magnitude (mag)")
+        ax.grid(True)
 
-        print(bcolors.HEADER + '\nGenerate diagnostic plot to remove stars' + bcolors.ENDC)
+        if len(cat_sel['MAG_CAT']) > 1:
+            ax.set_xlim(min(cat_all['MAG_INS']) - 0.2,
+                        min(max(cat_all['MAG_INS']), 0) + 0.2)
+            ax.set_ylim(min(cat_sel['MAG_CAT']) - 0.2,
+                        max(cat_sel['MAG_CAT']) + 0.2)
 
-        plt.figure(2, figsize=(9*np.sqrt(2.),9))
-
-        loc_ax                = plt.subplot(111)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=20, color=vigit_color_12, alpha=0.25, zorder=0)
-        loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=2, color=vigit_color_12, zorder=1)
-
-        loc_ax.errorbar(CAT['MAG_INS'], CAT['MAG_CAT'], CAT['MAGERR_CAT'], CAT['MAGERR_INS'], lw=0, ms=10, marker='o', color='0.75', elinewidth=2, capsize=0, zorder=2)
-        loc_ax.errorbar(CAT['MAG_INS'][mask_good], CAT['MAG_CAT'][mask_good], CAT['MAGERR_CAT'][mask_good], CAT['MAGERR_INS'][mask_good], lw=0, ms=10, marker='o', color='k', elinewidth=2, capsize=0, zorder=3)
-
-        if len(CAT['MAG_INS']) > 10:
-            loc_ax.axvline(np.percentile(CAT['MAG_INS'], LOWER), color='k', ls='--', zorder=4)
-            loc_ax.axvline(np.percentile(CAT['MAG_INS'], UPPER), color='k', ls='--', zorder=4)
-
-        loc_ax.set_xlabel("Instrumental magnitude (mag)")
-        loc_ax.set_ylabel("Apparent magnitude (mag)")
-
-        if len(CAT['MAG_CAT']) > 1:
-            loc_ax.set_xlim(min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2)
-            loc_ax.set_ylim(min(CAT['MAG_CAT'])-0.2, max(CAT['MAG_CAT'])+0.2)
-        else:
-            loc_ax.set_xlim(CAT['MAG_INS']-0.2, CAT['MAG_INS']+0.2)
-            loc_ax.set_ylim(CAT['MAG_CAT']-0.2, CAT['MAG_CAT']+0.2)
-
-        loc_ax.grid(True)
-        plt.savefig(PATH+FITS.replace('.fits', '_std.pdf'), dpi=600)
-
-        plt.show()
-        plt.close()
-
-        # Apply magnitude cuts
-
-        print('Current magnitude cuts:')
-
-        if len(CAT['MAG_INS']) > 10:
-            print('Lower: ' + str(np.round(np.percentile(CAT['MAG_INS'], LOWER), 2)))
-            print('Upper: ' + str(np.round(np.percentile(CAT['MAG_INS'], UPPER), 2)))
-        else:
-            print('Lower: not defined')
-            print('Upper: not defined')
-
-        if sys.version_info[0] == 2:
-            var1            = raw_input(bcolors.BOLD + bcolors.OKBLUE + '\nWould you like to apply a magnitude cut? [y|[n]] ' + bcolors.ENDC)
-        elif sys.version_info[0] == 3:
-            var1            = input(bcolors.BOLD + bcolors.OKBLUE + '\nWould you like to apply a magnitude cut? [y|[n]] ' + bcolors.ENDC)
-        else:
-            print(bcolors.FAIL + bcolors.BOLD + 'Programme requires either Python 2 or 3.' + bcolors.ENDC)
-            sys.exit()
-
-        flag_loop            = var1
-
-        CAT_CLEANED            = []
-
-        if flag_loop != 'y':
-            matched_catalog_cleaned    = CAT[mask_good]
-            ascii.write(np.array([matched_catalog_cleaned['XWIN_IMAGE'], matched_catalog_cleaned['YWIN_IMAGE'],
-                matched_catalog_cleaned['ALPHAWIN_J2000'], matched_catalog_cleaned['DELTAWIN_J2000'],
-                matched_catalog_cleaned['MAG_CAT'], matched_catalog_cleaned['MAGERR_CAT']]).T,
-                FILENAME,
-                names=['XWIN_IMAGE', 'YWIN_IMAGE', 'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'MAG', 'MAG_ERR'], overwrite=True)
-
-        while(flag_loop == 'y'):
-
-            if sys.version_info[0] == 2:
-                mag_cut_bright    = float(raw_input(bcolors.WARNING  + 'Limit for the bright stars: ' + bcolors.ENDC))
-                mag_cut_faint    = float(raw_input(bcolors.WARNING  + 'Limit for the faint stars: '  + bcolors.ENDC))
-            elif sys.version_info[0] == 3:
-                mag_cut_bright    = float(input(bcolors.WARNING  + 'Limit for the bright stars: ' + bcolors.ENDC))
-                mag_cut_faint    = float(input(bcolors.WARNING  + 'Limit for the faint stars: '  + bcolors.ENDC))
-            else:
-                print(bcolors.FAIL + bcolors.BOLD + 'Programme requires either Python 2 or 3.' + bcolors.ENDC)
-                sys.exit()
-
-            # Cleaning of the catalog
-
-            CAT_CLEANED        = table.vstack([x for x in CAT if mag_cut_bright <= x['MAG_INS'] <= mag_cut_faint])
-
-            print(bcolors.OKGREEN + '\nNumber of stars: ' + str(len(CAT_CLEANED)) + '\n' + bcolors.ENDC)
-
-
-            data_x            = CAT_CLEANED['MAG_INS']
-            data_y            = CAT_CLEANED['MAG_CAT']
-            data_y_err        = CAT_CLEANED['MAGERR_CAT']
-
-
-            if all(CAT_CLEANED['MAGERR_CAT']) != 0:
-
-                pinit        = 0
-                fitfunc     = lambda p, x: p + x
-                errfunc     = lambda p, x, y, err: (y - fitfunc(p, x)) / err
-                out            = optimize.leastsq(errfunc, pinit,args=(data_x, data_y, data_y_err), full_output=True)
-
-            else:
-
-                pinit        = 0
-                fitfunc     = lambda p, x: p + x
-                errfunc     = lambda p, x, y: (y - fitfunc(p, x))
-                out            = optimize.leastsq(errfunc, pinit,args=(data_x, data_y), full_output=True)
-
-            pfinal            = out[0]
-            cont_direct        = pfinal[0]
-
-            plt.figure(3, figsize=(9*np.sqrt(2.),9))
-
-            loc_ax            = plt.subplot(111)
-            loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=20, color=vigit_color_12, alpha=0.5, zorder=0)
-            loc_ax.plot(np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), cont_direct + np.array([min(CAT['MAG_INS'])-0.2, max(CAT['MAG_INS'])+0.2]), lw=2, color=vigit_color_12, zorder=1)
-
-            loc_ax.errorbar(CAT['MAG_INS'], CAT['MAG_CAT'], CAT['MAGERR_CAT'], CAT['MAGERR_INS'], lw=0, ms=10, marker='o', color='0.75', elinewidth=2, capsize=0, zorder=2)
-            loc_ax.errorbar(CAT_CLEANED['MAG_INS'], CAT_CLEANED['MAG_CAT'], CAT_CLEANED['MAGERR_CAT'], CAT_CLEANED['MAGERR_INS'], lw=0, ms=10, marker='o', color='k', elinewidth=2, capsize=0, zorder=3)
-
-            loc_ax.axvline(mag_cut_bright, color='k', ls='--', zorder=4)
-            loc_ax.axvline(mag_cut_faint,  color='k', ls='--', zorder=4)
-
-            loc_ax.set_xlabel("Instrumental magnitude (mag)")
-            loc_ax.set_ylabel("Apparent magnitude (mag)")
-
-            if len(CAT['MAG_CAT']) > 1:
-                loc_ax.set_xlim(min(CAT_CLEANED['MAG_INS'])-0.2, max(CAT_CLEANED['MAG_INS'])+0.2)
-                loc_ax.set_ylim(min(CAT_CLEANED['MAG_CAT'])-0.2, max(CAT_CLEANED['MAG_CAT'])+0.2)
-            else:
-                loc_ax.set_xlim(CAT_CLEANED['MAG_INS']-0.2, CAT_CLEANED['MAG_INS']+0.2)
-                loc_ax.set_ylim(CAT_CLEANED['MAG_CAT']-0.2, CAT_CLEANED['MAG_CAT']+0.2)
-
-            loc_ax.set_xlabel("Instrumental magnitude (mag)")
-            loc_ax.set_ylabel("Apparent magnitude (mag)")
-            loc_ax.grid(True)
-
-            plt.savefig(PATH+FITS.replace('.fits', '_std.pdf'), dpi=600)
-
+        plt.savefig(str(Path(PATH) / (Path(FITS).stem + '_std.pdf')),
+                    dpi=600)
+        if show:
             plt.show()
-            plt.close()
+        plt.close()
 
-            ascii.write(np.array([CAT_CLEANED['XWIN_IMAGE'], CAT_CLEANED['YWIN_IMAGE'],
-                CAT_CLEANED['ALPHAWIN_J2000'], CAT_CLEANED['DELTAWIN_J2000'],
-                CAT_CLEANED['MAG_CAT'], CAT_CLEANED['MAGERR_CAT']]).T,
-                FILENAME,
-                names=['XWIN_IMAGE', 'YWIN_IMAGE', 'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'MAG', 'MAG_ERR'], overwrite=True)
+    def _write_loc_seq(cat_out, filename):
+        ascii.write(
+            np.array([cat_out['XWIN_IMAGE'], cat_out['YWIN_IMAGE'],
+                      cat_out['ALPHAWIN_J2000'], cat_out['DELTAWIN_J2000'],
+                      cat_out['MAG_CAT'], cat_out['MAGERR_CAT']]).T,
+            filename,
+            names=['XWIN_IMAGE', 'YWIN_IMAGE',
+                   'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'MAG', 'MAG_ERR'],
+            overwrite=True)
 
+    # ---- AUTO mode -----------------------------------------------------------
+    if AUTO:
+        parts    = Path(FITS).stem.split('_')
+        tel      = parts[1] if len(parts) > 1 else ''
+        filt_str = [p for p in parts[2:] if len(p) == 1]
+        filt     = filt_str[0] if filt_str else ''
 
-            if sys.version_info[0] == 2:
-                flag_loop    = raw_input(bcolors.BOLD + bcolors.WARNING + 'Would you like to change the cuts? [y|[n]] ' + bcolors.ENDC)
-            elif sys.version_info[0] == 3:
-                flag_loop     = input(bcolors.BOLD + bcolors.WARNING + 'Would you like to change the cuts? [y|[n]] ' + bcolors.ENDC)
-            else:
-                print(bcolors.FAIL + bcolors.BOLD + 'Programme requires either Python 2 or 3.' + bcolors.ENDC)
-                sys.exit()
+        mask_row = ((instrument_settings['TELESCOPE'] == tel) &
+                    (instrument_settings['FILTER'] == filt))
+        if not np.any(mask_row):
+            raise ValueError(
+                f'No magnitude range defined for telescope={tel}, filter={filt}')
 
-        if 'auto_mag_bright' in locals():
-            LOGGER.info('Magnitude range: {magbright:.2f} - {magfaint:.2f}'.format(magbright=auto_mag_bright, magfaint=auto_mag_faint))
-        else:
-            if 'mag_cut_bright' in locals():
-                LOGGER.info('Magnitude range: {magbright:.2f} - {magfaint:.2f}'.format(magbright=mag_cut_bright, magfaint=mag_cut_faint))
-            else:
-                LOGGER.info('Magnitude range: {magbright:.2f} - {magfaint:.2f}'.format(magbright=min(CAT['MAG_INS']), magfaint=max(CAT['MAG_INS'])))
+        bright = float(instrument_settings['MAG_BRIGHT'][mask_row][0])
+        faint  = float(instrument_settings['MAG_FAINT'][mask_row][0])
 
-        if len(CAT)         == 0:
-            print(bcolors.FAIL + 'There is no star in the cleaned catalog. Check your input parameters.' + bcolors.ENDC)
-            sys.exit()
+        print(bcolors.OKGREEN
+              + f'AUTO magnitude range: {bright:.2f} to {faint:.2f}'
+              + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.info(f'Magnitude range: {bright:.2f} - {faint:.2f}')
 
-    if 'CAT_CLEANED' in locals():
-        if len(CAT_CLEANED) == 0:
-            return {'NUMSTARS': len(matched_catalog_cleaned), 'CAT': matched_catalog_cleaned}
-        else:
-            return {'NUMSTARS': len(CAT_CLEANED), 'CAT': CAT_CLEANED}
-    else:
+        mask_good = (bright <= CAT['MAG_INS']) & (CAT['MAG_INS'] <= faint)
+        cat_sel   = CAT[mask_good]
+
+        zp = _fit_zp(cat_sel['MAG_INS'], cat_sel['MAG_CAT'],
+                     cat_sel['MAGERR_CAT'])
+        _plot_std(CAT, cat_sel, zp, bright, faint, fignum=2)
+
+        print(bcolors.OKGREEN
+              + f'Number of stars: {mask_good.sum()}'
+              + bcolors.ENDC)
+        _write_loc_seq(cat_sel, FILENAME)
+        return {'NUMSTARS': int(mask_good.sum()), 'CAT': cat_sel}
+
+    # ---- Full range (no interactive cut) ------------------------------------
+    if LOWER == 0. and UPPER == 100:
+        zp = _fit_zp(CAT['MAG_INS'], CAT['MAG_CAT'], CAT['MAGERR_CAT'])
+        _plot_std(CAT, CAT, zp, None, None, fignum=2)
+        _write_loc_seq(CAT, FILENAME)
         return {'NUMSTARS': len(CAT), 'CAT': CAT}
 
+    # ---- Manual / percentile cut --------------------------------------------
+    if len(CAT['MAG_INS']) > 10:
+        bright_cut = np.percentile(CAT['MAG_INS'], LOWER)
+        faint_cut  = np.percentile(CAT['MAG_INS'], UPPER)
+    else:
+        bright_cut = float(CAT['MAG_INS'].min())
+        faint_cut  = float(CAT['MAG_INS'].max())
+
+    mask_good = ((CAT['MAG_INS'] >= bright_cut) & (CAT['MAG_INS'] <= faint_cut))
+    cat_sel   = CAT[mask_good]
+    zp        = _fit_zp(cat_sel['MAG_INS'], cat_sel['MAG_CAT'],
+                        cat_sel['MAGERR_CAT'])
+    _plot_std(CAT, cat_sel, zp, bright_cut, faint_cut, fignum=2, show=True)
+
+    print('Current magnitude cuts:')
+    print(f'  Bright: {bright_cut:.2f}')
+    print(f'  Faint:  {faint_cut:.2f}')
+
+    var1 = input(bcolors.BOLD + bcolors.OKBLUE
+                 + '\nWould you like to apply a magnitude cut? [y|[n]] '
+                 + bcolors.ENDC)
+
+    cat_cleaned = []
+
+    if var1 != 'y':
+        _write_loc_seq(cat_sel, FILENAME)
+    else:
+        while var1 == 'y':
+            bright_cut = float(input(bcolors.WARNING
+                                     + 'Limit for the bright stars: '
+                                     + bcolors.ENDC))
+            faint_cut  = float(input(bcolors.WARNING
+                                     + 'Limit for the faint stars: '
+                                     + bcolors.ENDC))
+
+            cat_cleaned = CAT[((CAT['MAG_INS'] >= bright_cut)
+                               & (CAT['MAG_INS'] <= faint_cut))]
+            print(bcolors.OKGREEN
+                  + f'\nNumber of stars: {len(cat_cleaned)}\n'
+                  + bcolors.ENDC)
+
+            if len(cat_cleaned):
+                zp = _fit_zp(cat_cleaned['MAG_INS'], cat_cleaned['MAG_CAT'],
+                             cat_cleaned['MAGERR_CAT'])
+            _plot_std(CAT, cat_cleaned, zp, bright_cut, faint_cut,
+                      fignum=3, show=True)
+            _write_loc_seq(cat_cleaned, FILENAME)
+
+            var1 = input(bcolors.BOLD + bcolors.WARNING
+                         + 'Would you like to change the cuts? [y|[n]] '
+                         + bcolors.ENDC)
+
+    if LOGGER:
+        LOGGER.info(f'Magnitude range: {bright_cut:.2f} - {faint_cut:.2f}')
+
+    final_cat = cat_cleaned if len(cat_cleaned) else cat_sel
+    if len(final_cat) == 0:
+        print(bcolors.FAIL
+              + 'No stars in the cleaned catalog. Check your input parameters.'
+              + bcolors.ENDC)
+        sys.exit(1)
+
+    return {'NUMSTARS': len(final_cat), 'CAT': final_cat}
+
+
+# ---------------------------------------------------------------------------
+# Poststamp (cutout) visualisation
+# ---------------------------------------------------------------------------
+
 def make_poststamp(FITS, COORD_EXP, COORD_OBS, PATH=''):
+    """Create a two-panel diagnostic poststamp showing expected vs observed.
 
+    Opens the SExtractor / sep check image (``check_<FITS>``) and the
+    science frame.  Marks the expected position (from WCS) and the observed
+    centroid.
 
-    # Open images with apertures
-
-    check_hdu        = fits.open('check_'+FITS)
-
-    if len(check_hdu) > 1:
-
-        check_image    = check_hdu[1].data
-        check_header= check_hdu[1].header
-
-    else:
-
-        check_image    = check_hdu[0].data
-        check_header= check_hdu[0].header
-
-
-    xmin            = int(COORD_EXP[0])-50 if int(COORD_EXP[0])-50 >= 0 else 0
-    xmax            = int(COORD_EXP[0])+50 if int(COORD_EXP[0])+50 <= check_header['NAXIS1'] else check_header['NAXIS1']
-
-    ymin            = int(COORD_EXP[1])-50 if int(COORD_EXP[1])-50 >= 0 else 0
-    ymax            = int(COORD_EXP[1])+50 if int(COORD_EXP[1])+50 <= check_header['NAXIS2'] else check_header['NAXIS2']
-
-    check_image        = check_image[ymin:ymax, xmin:xmax]
-
-    # Set brightness cuts
-
-    check_image_temp= check_image.flatten()
-    check_image_temp= sorted(check_image_temp[~np.isnan(check_image_temp)])
-
-    check_vmin        = np.array([np.percentile(check_image_temp, x) for x in range(50,99)])
-    try:
-        check_vmin    = check_vmin[check_vmin > 0][5]
-    except:
-        check_vmin     = max(check_image_temp) / 0.5
-
-    check_vmax        = np.percentile(check_image_temp, 97)
-
-    # Open science frame
-
-    sci_hdu            = fits.open(FITS)
-
-    if len(sci_hdu) > 1:
-
-        sci_image    = sci_hdu[1].data
-        sci_header    = sci_hdu[1].header
-
-    else:
-
-        sci_image    = sci_hdu[0].data
-        sci_header    = sci_hdu[0].header
-
-    xmin            = int(COORD_EXP[0])-50 if int(COORD_EXP[0])-50 >= 0 else 0
-    xmax            = int(COORD_EXP[0])+50 if int(COORD_EXP[0])+50 <= sci_header['NAXIS1'] else sci_header['NAXIS1']
-
-    ymin            = int(COORD_EXP[1])-50 if int(COORD_EXP[1])-50 >= 0 else 0
-    ymax            = int(COORD_EXP[1])+50 if int(COORD_EXP[1])+50 <= sci_header['NAXIS2'] else sci_header['NAXIS2']
-
-    sci_image        = sci_image[ymin:ymax, xmin:xmax]
-
-    sci_image_temp    = sci_image.flatten()
-    sci_image_temp    = sorted(sci_image_temp[~np.isnan(sci_image_temp)])
-
-    sci_vmin        = np.array([np.percentile(sci_image_temp, x) for x in range(50,99)])
-    try:
-        sci_vmin    = sci_vmin[sci_vmin > 0][1]
-    except:
-        sci_vmin     = max(sci_image_temp) / 0.5
-
-    sci_vmax        = np.percentile(sci_image_temp, 99)
-
-    # Making the plot
-
-    plt.figure(4, figsize=(np.sqrt(2)*9, 9))
-
-    post_ax            = plt.subplot(121)
-    post_bx            = plt.subplot(122)
-
-    post_ax.imshow(check_image, cmap=plt.cm.binary, interpolation='Nearest', origin='lower', norm=LogNorm(vmin=check_vmin, vmax=check_vmax))
-    post_bx.imshow(sci_image,   cmap=plt.cm.binary, interpolation='Nearest', origin='lower', norm=LogNorm(vmin=sci_vmin,   vmax=sci_vmax))
-
-    post_ax.plot(50, 50, marker='x', mew=5, color=vigit_color_1, ms=12)
-    post_bx.plot(50, 50, marker='x', mew=5, color=vigit_color_1, ms=12)
-
-    if len(COORD_OBS) > 0:
-        post_ax.errorbar( COORD_OBS[0] - int(COORD_EXP[0]) + 50 - 1, COORD_OBS[1] - int(COORD_EXP[1]) + 50 - 1, mew=5, marker='x', color=color_green, ms=12)
-        post_bx.errorbar( COORD_OBS[0] - int(COORD_EXP[0]) + 50 - 1, COORD_OBS[1] - int(COORD_EXP[1]) + 50 - 1, mew=5, marker='x', color=color_green, ms=12)
-
-    plt.setp(post_ax.get_xticklabels(), visible=False)
-    plt.setp(post_ax.get_yticklabels(), visible=False)
-
-    plt.setp(post_bx.get_xticklabels(), visible=False)
-    plt.setp(post_bx.get_yticklabels(), visible=False)
-
-    for line in post_ax.yaxis.get_majorticklines() + post_ax.xaxis.get_majorticklines():
-        line.set_markersize(0)
-
-    for line in post_bx.yaxis.get_majorticklines() + post_bx.xaxis.get_majorticklines():
-        line.set_markersize(0)
-
-    post_bx.text(right-0.05, top-0.05,  "\\textbf{Observed}", ha='right', va='top', transform=post_bx.transAxes, color=color_green, fontsize=legend_size, path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
-    post_bx.text(right-0.05, top-0.125, "\\textbf{Expected}", ha='right', va='top', transform=post_bx.transAxes, color=color_blue,  fontsize=legend_size, path_effects=[PathEffects.withStroke(linewidth=6, foreground="w")])
-
-    post_ax.set_xlim(0,100)
-    post_ax.set_ylim(0,100)
-
-    post_bx.set_xlim(0,100)
-    post_bx.set_ylim(0,100)
-
-    plt.savefig(PATH+FITS.replace('.fits', '_poststamp.pdf'), dpi=600)
-
-    return None
-
-def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTOMETRY, ZEROPOINT_SUMMARY, OFFSET, LOGGER):
-
+    Parameters
+    ----------
+    FITS : str
+        Science FITS filename.
+    COORD_EXP : tuple
+        Expected (x, y) position from WCS (1-indexed pixels).
+    COORD_OBS : tuple
+        Observed (x, y) centroid from source detection (1-indexed pixels).
+    PATH : str
+        Directory for the output PDF.
     """
-    Generates an output table. Contains information about the observation and the measurements.
+    fits_base = Path(FITS).name
+    check_path = Path('check_' + fits_base)
+
+    def _load_image(filepath):
+        with fits.open(filepath) as hdu:
+            if len(hdu) > 1:
+                img    = hdu[1].data
+                hdr    = hdu[1].header
+            else:
+                img    = hdu[0].data
+                hdr    = hdu[0].header
+        return img, hdr
+
+    def _vrange(img, cx, cy, halfwidth=50):
+        ny, nx = img.shape
+        xmin   = max(int(cx) - halfwidth, 0)
+        xmax   = min(int(cx) + halfwidth, nx)
+        ymin   = max(int(cy) - halfwidth, 0)
+        ymax   = min(int(cy) + halfwidth, ny)
+        cutout = img[ymin:ymax, xmin:xmax]
+        flat   = np.array(sorted(cutout.flatten()[~np.isnan(cutout.flatten())]))
+        if len(flat) == 0:
+            return 1e-3, 1.0
+        pcts   = np.array([np.percentile(flat, x) for x in range(50, 99)])
+        vmin   = pcts[pcts > 0][1] if np.any(pcts > 0) else flat.max() / 0.5
+        vmax   = np.percentile(flat, 99)
+        return vmin, vmax
+
+    halfwidth = 50
+    cx_exp, cy_exp = int(COORD_EXP[0]), int(COORD_EXP[1])
+
+    if check_path.exists():
+        check_img, check_hdr = _load_image(check_path)
+    else:
+        check_img, check_hdr = _load_image(FITS)
+
+    sci_img, sci_hdr = _load_image(FITS)
+
+    def _slice(img, cx, cy):
+        ny, nx = img.shape
+        return img[max(cy-halfwidth, 0):min(cy+halfwidth, ny),
+                   max(cx-halfwidth, 0):min(cx+halfwidth, nx)]
+
+    check_cut = _slice(check_img, cx_exp, cy_exp)
+    sci_cut   = _slice(sci_img,   cx_exp, cy_exp)
+
+    check_vmin, check_vmax = _vrange(check_img, cx_exp, cy_exp, halfwidth)
+    sci_vmin,   sci_vmax   = _vrange(sci_img,   cx_exp, cy_exp, halfwidth)
+
+    fig, (ax_check, ax_sci) = plt.subplots(
+        1, 2, figsize=(np.sqrt(2) * 9, 9))
+
+    for ax, img, vmin, vmax in [
+        (ax_check, check_cut, check_vmin, check_vmax),
+        (ax_sci,   sci_cut,   sci_vmin,   sci_vmax)
+    ]:
+        ax.imshow(img, cmap='binary', interpolation='nearest', origin='lower',
+                  norm=LogNorm(vmin=max(vmin, 1e-10), vmax=max(vmax, 1e-9)))
+        ax.plot(halfwidth, halfwidth, marker='x', mew=5,
+                color=vigit_color_1, ms=12)
+        plt.setp(ax.get_xticklabels(), visible=False)
+        plt.setp(ax.get_yticklabels(), visible=False)
+        for line in ax.yaxis.get_majorticklines() + ax.xaxis.get_majorticklines():
+            line.set_markersize(0)
+        ax.set_xlim(0, 2 * halfwidth)
+        ax.set_ylim(0, 2 * halfwidth)
+
+    if len(COORD_OBS) > 0 and COORD_OBS[0] is not None:
+        ox = COORD_OBS[0] - cx_exp + halfwidth - 1
+        oy = COORD_OBS[1] - cy_exp + halfwidth - 1
+        for ax in (ax_check, ax_sci):
+            ax.errorbar(ox, oy, mew=5, marker='x', color=color_green, ms=12)
+
+    ax_sci.text(0.95, 0.95, "\\textbf{Observed}", ha='right', va='top',
+                transform=ax_sci.transAxes, color=color_green,
+                fontsize=legend_size,
+                path_effects=[PathEffects.withStroke(linewidth=6,
+                                                      foreground="w")])
+    ax_sci.text(0.95, 0.85, "\\textbf{Expected}", ha='right', va='top',
+                transform=ax_sci.transAxes, color=vigit_color_1,
+                fontsize=legend_size,
+                path_effects=[PathEffects.withStroke(linewidth=6,
+                                                      foreground="w")])
+
+    outname = str(Path(PATH) / (Path(FITS).stem + '_poststamp.pdf'))
+    plt.savefig(outname, dpi=600)
+    plt.close()
+
+
+# ---------------------------------------------------------------------------
+# Output catalog builder
+# ---------------------------------------------------------------------------
+
+def make_scicat(FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY,
+                PHOTUTILS_PHOTOMETRY, ZEROPOINT_SUMMARY, OFFSET, LOGGER):
+    """Compile the final science photometry output table.
+
+    Merges header metadata, WCS positions, detection status, and calibrated
+    magnitudes from all apertures into a single summary table.
+
+    Parameters
+    ----------
+    FITS : str
+        Science FITS filename.
+    OBJECT_PROPERTIES : astropy.table.Table
+        Table with target RA, DEC, X_EXP, Y_EXP, OBJECT, PHOTCAL.
+    SEXTRACTOR_PHOTOMETRY : astropy.table.Table or list
+        Detections near the science object position (empty list if none).
+    PHOTUTILS_PHOTOMETRY : astropy.table.Table
+        Forced photometry results (used when SEXTRACTOR_PHOTOMETRY is empty).
+    ZEROPOINT_SUMMARY : astropy.table.Table
+        Zeropoint summary table from :func:`zeropoint`.
+    OFFSET : float
+        Detection search radius in arcseconds.
+    LOGGER : logging.Logger
+        Logger instance.
+
+    Returns
+    -------
+    astropy.table.Table
+        Summary photometry table with PROPERTY / VALUE / ERROR+/- / COMMENT.
     """
-
-    hdu_header                = fits.getheader(FITS)
-
-    catalog                    = table.Table(names=('PROPERTY', 'VALUE', 'ERROR+', 'ERROR-', 'COMMENT'), dtype=('S100', 'f', 'f', 'f', 'S100'))
-
-    # Filename
+    hdu_header = fits.getheader(FITS)
+    catalog    = table.Table(
+        names=('PROPERTY', 'VALUE', 'ERROR+', 'ERROR-', 'COMMENT'),
+        dtype=('U100', 'f', 'f', 'f', 'U100'))
 
     catalog.add_row(['FILENAME', np.nan, np.nan, np.nan, FITS])
 
-    # Observing time, exposure time (individual and number of exposures)
-
-    for key in ['DATE-OBS', 'MJD', 'EXPTIME', 'NCOMBINE']:
-
-        if key in list(hdu_header.keys()):
+    for key in ('DATE-OBS', 'MJD', 'EXPTIME', 'NCOMBINE'):
+        if key in hdu_header:
             catalog.add_row([key, np.nan, np.nan, np.nan, str(hdu_header[key])])
-
         else:
-            if key             == 'NCOMBINE':
-                catalog.add_row([key, np.nan, np.nan, np.nan, str(1)])
-            else:
-                catalog.add_row([key, np.nan, np.nan, np.nan, '...'])
+            catalog.add_row([key, np.nan, np.nan, np.nan,
+                             '1' if key == 'NCOMBINE' else '...'])
 
-    if 'OBSMJD' in list(hdu_header.keys()):
-        catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'] = time.Time(hdu_header['OBSMJD'], format='mjd').isot
-        catalog['COMMENT'][catalog['PROPERTY'] == 'MJD'] = hdu_header['OBSMJD']
+    # Handle non-standard date/time keywords
+    if 'OBSMJD' in hdu_header:
+        catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'] = \
+            time.Time(hdu_header['OBSMJD'], format='mjd').isot
+        catalog['COMMENT'][catalog['PROPERTY'] == 'MJD'] = \
+            str(hdu_header['OBSMJD'])
 
-    if not 'T' in catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS']:
-        try:
-            time_utc         = '{date}T{time}'.format(date=hdu_header['ut-date'], time=hdu_header['ut-time'])
-            catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS']     = time_utc
+    if 'T' not in str(catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'][0]):
+        for date_key, time_key in (('ut-date', 'ut-time'), ('UT-DATE', 'UT-TIME')):
+            if date_key in hdu_header and time_key in hdu_header:
+                try:
+                    utc = f"{hdu_header[date_key]}T{hdu_header[time_key]}"
+                    catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'] = utc
+                    mjd = time.Time(utc, format='isot', scale='utc').mjd
+                    catalog['COMMENT'][catalog['PROPERTY'] == 'MJD'] = \
+                        f'{mjd:.7f}'
+                    break
+                except Exception:
+                    pass
 
-            time_mjd        = time.Time(catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'], format='isot', scale='utc').mjd
-            catalog['COMMENT'][catalog['PROPERTY'] == 'MJD']         = '{:.7f}'.format(time_mjd)
+    catalog.add_row(['PHOTCAL', np.nan, np.nan, np.nan,
+                     OBJECT_PROPERTIES['PHOTCAL'][0]])
+    catalog.add_row(['RA',  float(f"{OBJECT_PROPERTIES['RA'][0]:.6f}"),
+                     np.nan, np.nan, 'degree'])
+    catalog.add_row(['DEC', float(f"{OBJECT_PROPERTIES['DEC'][0]:.6f}"),
+                     np.nan, np.nan, 'degree'])
+    catalog.add_row(['X_IMAGE_EXP',
+                     float(f"{OBJECT_PROPERTIES['X_EXP'][0]:.1f}"),
+                     np.nan, np.nan, 'pixel'])
+    catalog.add_row(['Y_IMAGE_EXP',
+                     float(f"{OBJECT_PROPERTIES['Y_EXP'][0]:.1f}"),
+                     np.nan, np.nan, 'pixel'])
 
-        except:
-            try:
-                time_utc     = '{date}T{time}'.format(date=hdu_header['ut-date'.upper()], time=hdu_header['ut-time'.upper()])
-                catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS']     = time_utc
+    pix_scale = fits_tools.pix2arcsec(FITS)
 
-                time_mjd    = time.Time(catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'], format='isot', scale='utc').mjd
-                catalog['COMMENT'][catalog['PROPERTY'] == 'MJD']         = '{:.7f}'.format(time_mjd)
+    if len(SEXTRACTOR_PHOTOMETRY) > 0:
+        msg = (f'One or more objects found within {OFFSET:.1f} arcsec '
+               f'from the source position')
+        print(bcolors.OKGREEN + f'\n{msg}\n' + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.info(msg)
 
-            except:
-                pass
-
-    # Calibrated against?
-
-    catalog.add_row(['PHOTCAL', np.nan, np.nan, np.nan, OBJECT_PROPERTIES['PHOTCAL']])
-
-    # Which object did we analyse
-
-    catalog.add_row(['RA',             '{:.6f}'.format(OBJECT_PROPERTIES['RA'][0]),    np.nan, np.nan, 'degree'])
-    catalog.add_row(['DEC',         '{:.6f}'.format(OBJECT_PROPERTIES['DEC'][0]),     np.nan, np.nan, 'degree'])
-
-    catalog.add_row(['X_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['X_EXP'][0]), np.nan, np.nan, 'degree'])
-    catalog.add_row(['Y_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['Y_EXP'][0]), np.nan, np.nan, 'degree'])
-
-    # Compute for all objects in SEXTRACTOR PHOTOMETRY the distance to the expected source position (unit: arcsec and pix)
-    # Identify the object with the smallest offset as the science object
-
-    if len(SEXTRACTOR_PHOTOMETRY)     > 0:
-
-        msg                    = 'One or more object found within {offset:.1f} arcsec from the source position'.format(offset=OFFSET)
-        print(bcolors.OKGREEN + '\n{}\n'.format(msg) + bcolors.ENDC)
-        LOGGER.info(msg)
-
-        # If more than one object, take the most nearby one
-
-        distance            = [np.sqrt( (x['XWIN_IMAGE'] - OBJECT_PROPERTIES['X_EXP'])**2 +  (x['YWIN_IMAGE'] - OBJECT_PROPERTIES['Y_EXP'])**2) for x in SEXTRACTOR_PHOTOMETRY]
-
-        SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']      = [float(x) for x in distance]
-        SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'] = SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']*fits_tools.pix2arcsec(FITS)
+        x_exp = float(OBJECT_PROPERTIES['X_EXP'][0])
+        y_exp = float(OBJECT_PROPERTIES['Y_EXP'][0])
+        distance = [float(np.sqrt((float(x['XWIN_IMAGE']) - x_exp)**2
+                                   + (float(x['YWIN_IMAGE']) - y_exp)**2))
+                    for x in SEXTRACTOR_PHOTOMETRY]
+        SEXTRACTOR_PHOTOMETRY['DISTANCE (px)']     = distance
+        SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'] = \
+            SEXTRACTOR_PHOTOMETRY['DISTANCE (px)'] * pix_scale
         SEXTRACTOR_PHOTOMETRY.sort('DISTANCE (px)')
 
-        for key in ['XWIN_IMAGE', 'YWIN_IMAGE']:
-            catalog.add_row([key+'_OBS', '{:.01f}'.format(SEXTRACTOR_PHOTOMETRY[key][0]), np.nan, np.nan, 'px'])
+        for key in ('XWIN_IMAGE', 'YWIN_IMAGE'):
+            catalog.add_row([key + '_OBS',
+                             float(f'{SEXTRACTOR_PHOTOMETRY[key][0]:.1f}'),
+                             np.nan, np.nan, 'pixel'])
+        for key in ('ALPHAWIN_J2000', 'DELTAWIN_J2000'):
+            catalog.add_row([key + '_OBS',
+                             float(f'{SEXTRACTOR_PHOTOMETRY[key][0]:.5f}'),
+                             np.nan, np.nan, 'degree'])
 
-        for key in ['ALPHAWIN_J2000', 'DELTAWIN_J2000']:
-            catalog.add_row([key+'_OBS', '{:.05f}'.format(SEXTRACTOR_PHOTOMETRY[key][0]), np.nan, np.nan, 'px'])
+        catalog.add_row(['DISTANCE (px)',
+                         float(f'{SEXTRACTOR_PHOTOMETRY["DISTANCE (px)"][0]:.2f}'),
+                         np.nan, np.nan, 'pixel'])
+        catalog.add_row(['DISTANCE (arcsec)',
+                         float(f'{SEXTRACTOR_PHOTOMETRY["DISTANCE (arcsec)"][0]:.2f}'),
+                         np.nan, np.nan, 'arcsec'])
+        catalog.add_row(['FLUX_RADIUS (arcsec)',
+                         float(f'{SEXTRACTOR_PHOTOMETRY["FLUX_RADIUS"][0] * pix_scale:.2f}'),
+                         np.nan, np.nan, 'arcsec'])
 
-        catalog.add_row(['DISTANCE (px)',       '{:.2f}'.format(float(SEXTRACTOR_PHOTOMETRY['DISTANCE (px)'][0])),     np.nan, np.nan, 'px'])
-        catalog.add_row(['DISTANCE (arcsec)', '{:.2f}'.format(float(SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'][0])), np.nan, np.nan, 'arcsec'])
-
-        catalog.add_row(['FLUX_RADIUS (arcsec)', '{:.02f}'.format(float(SEXTRACTOR_PHOTOMETRY['FLUX_RADIUS'][0])*fits_tools.pix2arcsec(FITS)), np.nan, np.nan, 'arcsec'])
-
-        # Add magnitudes
-
-        # Add photutils keywords
-
-        j                    = 0
-
-        for i in range(len(ZEROPOINT_SUMMARY)):
-            if 'MAG_APER' in ZEROPOINT_SUMMARY['METHOD'][i]:
-                if j         == 0:
-                    catalog.add_row(['MAG_APER_PHOTUTILS',            np.nan, np.nan, np.nan, 'mag'])
-                    catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA',    np.nan, np.nan, np.nan, 'mag'])
-                    catalog.add_row(['FNU_APER_PHOTUTILS',            np.nan, np.nan, np.nan, 'mag'])
-                else:
-                    catalog.add_row(['MAG_APER_' + str(j) + '_PHOTUTILS',        np.nan, np.nan, np.nan, 'mag'])
-                    catalog.add_row(['MAG_APER_' + str(j) + '_PHOTUTILS_3SIGMA',np.nan, np.nan, np.nan, 'mag'])
-                    catalog.add_row(['FNU_APER_' + str(j) + '_PHOTUTILS',        np.nan, np.nan, np.nan, 'mag'])
-
-                j             += 1
-
-        # Add information from Sextractor
-
-        for key in [x for x in SEXTRACTOR_PHOTOMETRY.keys() if 'MAG_' in x]:
-
-            mag                = '{:.3f}'.format(SEXTRACTOR_PHOTOMETRY[key][0])
-            mag_errp        = '{:.3f}'.format(SEXTRACTOR_PHOTOMETRY[key.replace('MAG', 'MAGERRP')][0])
-            mag_errm        = '{:.3f}'.format(SEXTRACTOR_PHOTOMETRY[key.replace('MAG', 'MAGERRM')][0])
-
-            catalog.add_row([key, mag, mag_errp, mag_errm, 'mag'])
-
+        for key in [k for k in SEXTRACTOR_PHOTOMETRY.colnames if 'MAG_' in k]:
+            errp_key = key.replace('MAG_', 'MAGERRP_')
+            errm_key = key.replace('MAG_', 'MAGERRM_')
+            catalog.add_row([key,
+                             float(f'{SEXTRACTOR_PHOTOMETRY[key][0]:.3f}'),
+                             float(f'{SEXTRACTOR_PHOTOMETRY[errp_key][0]:.3f}'),
+                             float(f'{SEXTRACTOR_PHOTOMETRY[errm_key][0]:.3f}'),
+                             'mag'])
     else:
+        msg = (f'No object found within {OFFSET:.1f} arcsec '
+               f'from the source position')
+        print(bcolors.WARNING + f'\n{msg}\n' + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.info(msg)
 
-        msg                    = 'No object found within {offset:.1f} arcsec from the source position'.format(offset=OFFSET)
-        print(bcolors.WARNING + '\n{}\n'.format(msg) + bcolors.ENDC)
-        LOGGER.info(msg)
+        for key in ('XWIN_IMAGE', 'YWIN_IMAGE'):
+            catalog.add_row([key + '_OBS', np.nan, np.nan, np.nan, 'pixel'])
+        catalog.add_row(['DISTANCE (px)',     np.nan, np.nan, np.nan, 'pixel'])
+        catalog.add_row(['DISTANCE (arcsec)', np.nan, np.nan, np.nan, 'arcsec'])
 
-        for key in ['XWIN_IMAGE', 'YWIN_IMAGE']:
-            catalog.add_row([key+'_OBS',        np.nan, np.nan, np.nan, 'px'])
+        mag_keys = [k for k in PHOTUTILS_PHOTOMETRY.colnames
+                    if k.startswith('MAG_APER_') and not k.startswith('MAG_APER_PHOTUTILS')]
+        # Sort by aperture index
+        mag_keys = sorted(mag_keys,
+                          key=lambda k: int(k.split('_')[-1])
+                          if k.split('_')[-1].isdigit() else 0)
 
-        catalog.add_row(['DISTANCE (px)',        np.nan, np.nan, np.nan, 'px'])
-        catalog.add_row(['DISTANCE (arcsec)',    np.nan, np.nan, np.nan, 'arcsec'])
+        for i, key in enumerate(mag_keys):
+            idx     = key.split('_')[-1]
+            errp_key = 'MAGERRP_APER_' + idx
+            errm_key = 'MAGERRM_APER_' + idx
+            fnu_key  = 'FNU_APER_' + idx
+            fnuerr   = float(PHOTUTILS_PHOTOMETRY['FNUERR_APER_' + idx][0])
 
-        # for key in ['X_IMAGE', 'Y_IMAGE']:
-        #     catalog.add_row([key+'_OBS',        np.nan, np.nan, np.nan, 'px'])
+            suffix   = '' if i == 0 else str(i)
+            mag_3sig = 23.9 - 2.5 * np.log10(3 * fnuerr)
 
-        # for key in ['DISTANCE (px)', 'DISTANCE (arcsec)']:
-        #     catalog.add_row([key,                np.nan, np.nan, np.nan, '...'])
-
-        # Iterate over all apertures
-
-        for i in range(len([key for key in PHOTUTILS_PHOTOMETRY.keys() if 'MAG_' in key])):
-
-            # Remember: flux density is already in micro-Jansky. Only add 23.9
-
-            if i             == 0:
-
-                mag            = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAG_APER_'         + str(i)][0])
-                mag_errp    = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAGERRP_APER_'    + str(i)][0])
-                mag_errm    = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAGERRM_APER_'    +str(i)][0])
-                mag_3sigma    = '{:.3f}'.format(23.9 - 2.5*np.log10(3*PHOTUTILS_PHOTOMETRY['FNUERR_APER_'+str(i)][0]))
-                flux        = '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNU_APER_'         + str(i)][0])
-                flux_err    = '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNUERR_APER_'    + str(i)][0])
-
-                catalog.add_row(['MAG_APER_PHOTUTILS',             mag,        mag_errp,    mag_errm, 'mag'])
-                catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA',    mag_3sigma,    np.nan,        np.nan,   'mag'])
-                catalog.add_row(['FNU_APER_PHOTUTILS',             flux,        flux_err,    flux_err, 'microJy'])
-
-            else:
-
-                mag            = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAG_APER_'        +str(i)][0])
-                mag_errp    = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAGERRP_APER_'    +str(i)][0])
-                mag_errm    = '{:.3f}'.format(PHOTUTILS_PHOTOMETRY['MAGERRM_APER_'    +str(i)][0])
-                mag_3sigma    = '{:.3f}'.format(23.9 - 2.5*np.log10(3*PHOTUTILS_PHOTOMETRY['FNUERR_APER_'+str(i)][0]))
-                flux        = '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNU_APER_'        +str(i)][0])
-                flux_err    = '{:.3e}'.format(PHOTUTILS_PHOTOMETRY['FNUERR_APER_'    +str(i)][0])
-
-                catalog.add_row(['MAG_APER_PHOTUTILS_'+str(i),             mag,        mag_errp,    mag_errm, 'mag'])
-                catalog.add_row(['MAG_APER_PHOTUTILS_3SIGMA_'+str(i),    mag_3sigma,    np.nan,        np.nan,   'mag'])
-                catalog.add_row(['FNU_APER_PHOTUTILS_'+str(i),             flux,        flux_err,    flux_err, 'microJy'])
-
-            i                 += 1
-
-        # Add Sextractor keywords
-
-        for key in [x for x in SEXTRACTOR_PHOTOMETRY.keys() if 'MAG_' in x]:
-            catalog.add_row([key, np.nan, np.nan, np.nan, 'mag'])
+            catalog.add_row([f'MAG_APER{suffix}_PHOTUTILS',
+                             float(f'{PHOTUTILS_PHOTOMETRY[key][0]:.3f}'),
+                             float(f'{PHOTUTILS_PHOTOMETRY[errp_key][0]:.3f}'),
+                             float(f'{PHOTUTILS_PHOTOMETRY[errm_key][0]:.3f}'),
+                             'mag'])
+            catalog.add_row([f'MAG_APER{suffix}_PHOTUTILS_3SIGMA',
+                             float(f'{mag_3sig:.3f}'), np.nan, np.nan, 'mag'])
+            catalog.add_row([f'FNU_APER{suffix}_PHOTUTILS',
+                             float(f'{PHOTUTILS_PHOTOMETRY[fnu_key][0]:.3e}'),
+                             fnuerr, fnuerr, 'microJy'])
 
     return catalog
 
-def setup_sextractor():
-    default_conv    = ("""CONV NORM
-# 3x3 ``all-ground'' convolution mask with FWHM = 2 pixels.
+
+# ---------------------------------------------------------------------------
+# SExtractor config file writer (kept for astrometry.net compatibility)
+# ---------------------------------------------------------------------------
+
+def setup_sextractor(outdir='.'):
+    """Write default SExtractor configuration files.
+
+    Writes ``default.conv``, ``default.nnw``, ``default.param``, and
+    ``default.sex`` to *outdir*.  These are needed by astrometry.net's
+    ``solve-field`` command which internally calls SExtractor for source
+    detection.
+
+    Parameters
+    ----------
+    outdir : str
+        Directory where the configuration files are written (default: '.').
+    """
+    outdir = Path(outdir)
+
+    default_conv = """CONV NORM
+# 3x3 all-ground convolution mask with FWHM = 2 pixels.
 1 2 1
 2 4 2
 1 2 1
-    """)
-
-    default_nnw        = ("""NNW
+"""
+    default_nnw = """NNW
 # Neural Network Weights for the SExtractor star/galaxy classifier (V1.3)
-# inputs:       9 for profile parameters + 1 for seeing.
-# outputs:      ``Stellarity index'' (0.0 to 1.0)
-# Seeing FWHM range: from 0.025 to 5.5'' (images must have 1.5 < FWHM < 5 pixels)
-# Optimized for Moffat profiles with 2<= beta <= 4.
-
  3 10 10  1
-
 -1.56604e+00 -2.48265e+00 -1.44564e+00 -1.24675e+00 -9.44913e-01 -5.22453e-01  4.61342e-02  8.31957e-01  2.15505e+00  2.64769e-01
  3.03477e+00  2.69561e+00  3.16188e+00  3.34497e+00  3.51885e+00  3.65570e+00  3.74856e+00  3.84541e+00  4.22811e+00  3.27734e+00
-
 -3.22480e-01 -2.12804e+00  6.50750e-01 -1.11242e+00 -1.40683e+00 -1.55944e+00 -1.84558e+00 -1.18946e-01  5.52395e-01 -4.36564e-01 -5.30052e+00
  4.62594e-01 -3.29127e+00  1.10950e+00 -6.01857e-01  1.29492e-01  1.42290e+00  2.90741e+00  2.44058e+00 -9.19118e-01  8.42851e-01 -4.69824e+00
 -2.57424e+00  8.96469e-01  8.34775e-01  2.18845e+00  2.46526e+00  8.60878e-02 -6.88080e-01 -1.33623e-02  9.30403e-02  1.64942e+00 -1.01231e+00
@@ -1221,446 +1225,755 @@ def setup_sextractor():
  3.75075e+00  7.25399e+00 -1.75325e+00 -2.68814e+00 -3.71128e+00 -4.62933e+00 -2.13747e+00 -1.89186e-01  1.29122e+00 -7.49380e-01  6.71712e-01
 -8.41923e-01  4.64997e+00  5.65808e-01 -3.08277e-01 -1.01687e+00  1.73127e-01 -8.92130e-01  1.89044e+00 -2.75543e-01 -7.72828e-01  5.36745e-01
 -3.65598e+00  7.56997e+00 -3.76373e+00 -1.74542e+00 -1.37540e-01 -5.55400e-01 -1.59195e-01  1.27910e-01  1.91906e+00  1.42119e+00 -4.35502e+00
-
 -1.70059e+00 -3.65695e+00  1.22367e+00 -5.74367e-01 -3.29571e+00  2.46316e+00  5.22353e+00  2.42038e+00  1.22919e+00 -9.22250e-01 -2.32028e+00
-
-
  0.00000e+00
  1.00000e+00
-    """)
+"""
+    default_param = """NUMBER
+XWIN_IMAGE
+YWIN_IMAGE
+ALPHAWIN_J2000
+DELTAWIN_J2000
+FLAGS
+FWHM_IMAGE
+CLASS_STAR
+FLUX_AUTO
+FLUXERR_AUTO
+FLUX_RADIUS
+A_IMAGE
+B_IMAGE
+THETA_IMAGE
+KRON_RADIUS
+"""
+    default_sex = """CATALOG_NAME     test.cat
+CATALOG_TYPE     ASCII_HEAD
+PARAMETERS_NAME  default.param
+DETECT_TYPE      CCD
+DETECT_MINAREA   3
+DETECT_THRESH    1.5
+ANALYSIS_THRESH  1.5
+FILTER           Y
+FILTER_NAME      default.conv
+DEBLEND_NTHRESH  32
+DEBLEND_MINCONT  0.005
+CLEAN            Y
+CLEAN_PARAM      1.0
+WEIGHT_TYPE      NONE
+PHOT_APERTURES   5
+PHOT_AUTOPARAMS  2.5, 3.5
+PHOT_PETROPARAMS 2.0, 3.5
+PHOT_FLUXFRAC    0.5
+SATUR_LEVEL      50000.0
+SATUR_KEY        SATURATE
+MAG_ZEROPOINT    0.0
+GAIN             0.0
+GAIN_KEY         GAIN
+PIXEL_SCALE      1.0
+SEEING_FWHM      1.2
+STARNNW_NAME     default.nnw
+BACK_TYPE        AUTO
+BACK_SIZE        64
+BACK_FILTERSIZE  3
+CHECKIMAGE_TYPE  NONE
+MEMORY_OBJSTACK  3000
+MEMORY_PIXSTACK  300000
+MEMORY_BUFSIZE   1024
+VERBOSE_TYPE     QUIET
+WRITE_XML        N
+"""
+    for fname, content in (
+        ('default.conv',  default_conv),
+        ('default.nnw',   default_nnw),
+        ('default.param', default_param),
+        ('default.sex',   default_sex),
+    ):
+        (outdir / fname).write_text(content)
 
-    default_param    = ("""NUMBER                   # Running object number
-XWIN_IMAGE               # Windowed position estimate along x                        [pixel]
-YWIN_IMAGE               # Windowed position estimate along y                        [pixel]
-ERRX2WIN_IMAGE           # Variance of position along x                              [pixel**2]
-ERRY2WIN_IMAGE           # Variance of position along y                              [pixel**2]
-ERRXYWIN_IMAGE           # Covariance of position between x and y                    [pixel**2]
-X2WIN_IMAGE              # Windowed variance along x                                 [pixel**2]
-Y2WIN_IMAGE              # Windowed variance along y                                 [pixel**2]
-XYWIN_IMAGE              # Windowed covariance between x and y                       [pixel**2]
-ELONGATION               # A_IMAGE/B_IMAGE
-ALPHAWIN_J2000           # Windowed right ascension (J2000)                          [deg]
-DELTAWIN_J2000           # windowed declination (J2000)                              [deg]
-FLAGS                    # Extraction flags
-FWHM_IMAGE               # FWHM assuming a gaussian core                             [pixel]
-CLASS_STAR               # S/G classifier output
-FLUX_APER(1)             # Flux vector within fixed circular aperture(s)             [count]
-FLUXERR_APER(1)          # RMS error vector for aperture flux(es)                    [count]
-BACKGROUND               # Background at centroid position                           [count]
-FLUX_MAX                 # Peak flux above background                                [count]
-FLUX_AUTO                # Flux within a Kron-like elliptical aperture               [count]
-FLUXERR_AUTO             # RMS error for AUTO flux                                   [count]
-KRON_RADIUS              # Kron apertures in units of A or B
-FLUX_ISO                 # Isophotal flux                                            [count]
-FLUXERR_ISO              # RMS error for isophotal flux                              [count]
-ISOAREA_IMAGE            # Isophotal area above Analysis threshold                   [pixel**2]
-MU_MAX                   # Peak surface brightness above background                  [mag * arcsec**(-2)]
-FLUX_RADIUS              # Fraction-of-light radii                                   [pixel]
-FLUX_PETRO               # Flux within a Petrosian-like elliptical aperture          [count]
-FLUXERR_PETRO            # RMS error for PETROsian flux                              [count]
-PETRO_RADIUS             # Petrosian apertures in units of A or B
-SNR_WIN                  # Signal-to-noise ratio in a Gaussian window
-    """)
 
-    default_sex    = (
-"""# Default configuration file for SExtractor 2.12.4
-# EB 2010-10-10
-#
+# ---------------------------------------------------------------------------
+# sep-based source extraction and photometry
+# ---------------------------------------------------------------------------
 
-#-------------------------------- Catalog ------------------------------------
+def _load_fits_data(fits_path):
+    """Load image data and combined header from a FITS file.
 
-CATALOG_NAME     test.cat       # name of the output catalog
-CATALOG_TYPE     FITS_LDAC     # NONE,ASCII,ASCII_HEAD, ASCII_SKYCAT,
-                                # ASCII_VOTABLE, FITS_1.0 or FITS_LDAC
-PARAMETERS_NAME  default.param  # name of the file containing catalog contents
+    Handles both single-extension and multi-extension FITS (e.g., HST DRZ).
 
-#------------------------------- Extraction ----------------------------------
+    Parameters
+    ----------
+    fits_path : str
+        Path to the FITS file.
 
-DETECT_TYPE      CCD            # CCD (linear) or PHOTO (with gamma correction)
-DETECT_MINAREA   3              # min. # of pixels above threshold
+    Returns
+    -------
+    tuple
+        (data : np.ndarray float64, header : fits.Header)
+    """
+    with fits.open(fits_path) as hdulist:
+        header = hdulist[0].header.copy()
+        if len(hdulist) > 1:
+            try:
+                # Check if extension 1 has image data
+                _ = hdulist[1].data.shape
+                header += hdulist[1].header
+                data    = hdulist[1].data
+            except (AttributeError, TypeError):
+                data = hdulist[0].data
+        else:
+            data = hdulist[0].data
 
-DETECT_THRESH    1.5            # <sigmas> or <threshold>,<ZP> in mag.arcsec-2
-ANALYSIS_THRESH  1.5            # <sigmas> or <threshold>,<ZP> in mag.arcsec-2
+    # sep requires native byte order and float64
+    data = np.array(data, dtype=np.float64)
+    if not data.flags['C_CONTIGUOUS']:
+        data = np.ascontiguousarray(data)
+    return data, header
 
-FILTER           Y              # apply filter for detection (Y or N)?
-FILTER_NAME      default.conv   # name of the file containing the filter
-
-DEBLEND_NTHRESH  32             # Number of deblending sub-thresholds
-DEBLEND_MINCONT  0.005          # Minimum contrast parameter for deblending
-
-CLEAN            Y              # Clean spurious detections? (Y or N)?
-CLEAN_PARAM      1.0            # Cleaning efficiency
-
-#-------------------------------- WEIGHTing ----------------------------------
-
-WEIGHT_TYPE      NONE           # type of WEIGHTing: NONE, BACKGROUND,
-                                # MAP_RMS, MAP_VAR or MAP_WEIGHT
-WEIGHT_IMAGE     weight.fits    # weight-map filename
-
-#-------------------------------- FLAGging -----------------------------------
-
-FLAG_IMAGE       flag.fits      # filename for an input FLAG-image
-FLAG_TYPE        OR             # flag pixel combination: OR, AND, MIN, MAX
-                                # or MOST
-
-#------------------------------ Photometry -----------------------------------
-PHOT_FLUXFRAC    0.5  # Fraction of light for FLUX_RADIUS
-
-PHOT_APERTURES   5              # MAG_APER aperture diameter(s) in pixels
-PHOT_AUTOPARAMS  2.5, 3.5       # MAG_AUTO parameters: <Kron_fact>,<min_radius>
-PHOT_PETROPARAMS 2.0, 3.5       # MAG_PETRO parameters: <Petrosian_fact>,
-                                # <min_radius>
-PHOT_AUTOAPERS   0.0,0.0        # <estimation>,<measurement> minimum apertures
-                                # for MAG_AUTO and MAG_PETRO
-
-SATUR_LEVEL      50000.0        # level (in ADUs) at which arises saturation
-SATUR_KEY        SATURATE       # keyword for saturation level (in ADUs)
-
-MAG_ZEROPOINT    0.0            # magnitude zero-point
-MAG_GAMMA        4.0            # gamma of emulsion (for photographic scans)
-GAIN             0.0            # detector gain in e-/ADU
-GAIN_KEY         GAIN           # keyword for detector gain in e-/ADU
-PIXEL_SCALE      1.0            # size of pixel in arcsec (0=use FITS WCS info)
-
-#------------------------- Star/Galaxy Separation ----------------------------
-
-SEEING_FWHM      1.2            # stellar FWHM in arcsec
-STARNNW_NAME     default.nnw    # Neural-Network_Weight table filename
-
-#------------------------------ Background -----------------------------------
-
-BACK_TYPE        AUTO           # AUTO or MANUAL
-BACK_VALUE       0.0            # Default background value in MANUAL mode
-BACK_SIZE        64             # Background mesh: <size> or <width>,<height>
-BACK_FILTERSIZE  3              # Background filter: <size> or <width>,<height>
-
-#------------------------------ Check Image ----------------------------------
-
-CHECKIMAGE_TYPE  NONE           # can be NONE, BACKGROUND, BACKGROUND_RMS,
-                                # MINIBACKGROUND, MINIBACK_RMS, -BACKGROUND,
-                                # FILTERED, OBJECTS, -OBJECTS, SEGMENTATION,
-                                # or APERTURES
-CHECKIMAGE_NAME  check.fits     # Filename for the check-image
-
-#--------------------- Memory (change with caution!) -------------------------
-
-MEMORY_OBJSTACK  3000           # number of objects in stack
-MEMORY_PIXSTACK  300000         # number of pixels in stack
-MEMORY_BUFSIZE   1024           # number of lines in buffer
-
-#------------------------------- ASSOCiation ---------------------------------
-
-ASSOC_NAME       sky.list       # name of the ASCII file to ASSOCiate
-ASSOC_DATA       2,3,4          # columns of the data to replicate (0=all)
-ASSOC_PARAMS     2,3,4          # columns of xpos,ypos[,mag]
-ASSOC_RADIUS     2.0            # cross-matching radius (pixels)
-ASSOC_TYPE       NEAREST        # ASSOCiation method: FIRST, NEAREST, MEAN,
-                                # MAG_MEAN, SUM, MAG_SUM, MIN or MAX
-ASSOCSELEC_TYPE  MATCHED        # ASSOC selection type: ALL, MATCHED or -MATCHED
-
-#----------------------------- Miscellaneous ---------------------------------
-
-VERBOSE_TYPE     NORMAL         # can be QUIET, NORMAL or FULL
-HEADER_SUFFIX    .head          # Filename extension for additional headers
-WRITE_XML        N              # Write XML file (Y/N)?
-XML_NAME         sex.xml        # Filename for XML output
-XSL_URL          file:///usr/local/share/sextractor/sextractor.xsl
-                                # Filename for XSL style-sheet
-    """)
-
-    output     = open('default.param', 'w')
-    output.write(default_param)
-    output.close()
-
-    output     = open('default.sex', 'w')
-    output.write(default_sex)
-    output.close()
-
-    output     = open('default.nnw', 'w')
-    output.write(default_nnw)
-    output.close()
-
-    output     = open('default.conv', 'w')
-    output.write(default_conv)
-    output.close()
-
-    return None
 
 def sextractor_photometry(
-                    ANALYSIS_THRESH    = 1,
-                    ASSOC_NAME        = None,
-                    ASSOC_PARAMS    = "1,2",
-                    ASSOC_RADIUS    = 10,
-                    BACK_SIZE        = 64,
-                    BACK_FILTERSIZE    = 3,
-#                    CORRELATED        = False,
-                    DEBLEND_NTHRESH    = 64,
-                    DEBLEND_MINCONT    = 0.00001,
-                    DETECT_THRESH    = 1,
-                    FITS            = "",
-                    FLAG            = "",
-                    GAIN            = 1,
-                    LOGGER            = None,
-                    LOGLEVEL        = 'WARNING',
-                    PARAMS             =  "DEFAULT",
-                    PATH            = None,
-                    PHOT_APERTURES    = None, 
-                    REF_FILE        = ""):
+        ANALYSIS_THRESH=1.0,
+        ASSOC_NAME=None,
+        ASSOC_PARAMS="1,2",
+        ASSOC_RADIUS=10.0,
+        BACK_SIZE=64,
+        BACK_FILTERSIZE=3,
+        DEBLEND_NTHRESH=32,
+        DEBLEND_MINCONT=0.005,
+        DETECT_THRESH=1.0,
+        FITS="",
+        FLAG="",
+        GAIN=None,
+        LOGGER=None,
+        LOGLEVEL='WARNING',
+        PARAMS="DEFAULT",
+        PATH=None,
+        PHOT_APERTURES=None,
+        REF_FILE=""):
+    """Detect sources and measure photometry using sep (SExtractor in Python).
 
-    sew                = sewpy.SEW(loglevel=LOGLEVEL,
-                                config={"ANALYSIS_THRESH":     ANALYSIS_THRESH,
-                                        "ASSOC_PARAMS":     ASSOC_PARAMS,
-                                        "ASSOC_RADIUS":     ASSOC_RADIUS,
-                                        "BACK_SIZE":        BACK_SIZE,
-                                        "BACK_FILTERSIZE":    BACK_FILTERSIZE,
-                                        'CHECKIMAGE_NAME':     "check_"+FITS,
-                                        'CHECKIMAGE_TYPE':     "APERTURES",
-                                        "DEBLEND_NTHRESH":     DEBLEND_NTHRESH,
-                                        "DEBLEND_MINCONT":     DEBLEND_MINCONT,
-                                        "DETECT_MINAREA":     5,
-                                        "DETECT_THRESH":     DETECT_THRESH,
-                                        "GAIN_KEY":         get_gain(FITS, GAIN, LOGGER),
-                                        "PHOT_APERTURES":     "",
-                                        "PHOT_FLUXFRAC":    1.0,
-                                        "PHOT_AUTOPARAMS":     "2.5, 3.5",
-                                        "PHOT_PETROPARAMS": "2.0, 3.5",
-                                        "SATURATION":        100000000,
-                                        }
-                    )
+    Replaces the original sewpy/SExtractor backend with the pure-Python sep
+    library.  The returned table has the same column structure as the original
+    SExtractor output so that all downstream code is unaffected.
 
-    if PARAMS        == "DEFAULT":
-        params_out    = ["XWIN_IMAGE", "YWIN_IMAGE", "ALPHAWIN_J2000", "DELTAWIN_J2000",
-                        "MAG_AUTO", "MAGERR_AUTO",
-                        "MAG_PETRO", "MAGERR_PETRO",
-                        "FLUX_AUTO", "FLUXERR_AUTO",
-                        "FLUX_PETRO", "FLUXERR_PETRO",
-                        "FWHM_IMAGE", "FWHM_WORLD",
-                        "A_IMAGE", "B_IMAGE", "THETA_IMAGE", "KRON_RADIUS",
-                        "FLUX_RADIUS", "FLAGS"]
+    **Coordinate convention:** sep positions are 0-indexed.  All pixel
+    columns (XWIN_IMAGE, YWIN_IMAGE) are converted to 1-indexed (FITS/
+    SExtractor) convention before return.
+
+    **ASSOC mode:** When *ASSOC_NAME* is provided, only sources within
+    *ASSOC_RADIUS* pixels of any input position are returned (same semantics
+    as SExtractor's ASSOCSELEC_TYPE=MATCHED).
+
+    **Dual-image mode:** When *REF_FILE* is provided, source positions are
+    detected on the reference image and photometry is measured on the science
+    image (same as running ``sex REF_FILE,FITS``).
+
+    Parameters
+    ----------
+    ANALYSIS_THRESH : float
+        Analysis threshold in sigma for background map (default: 1.0).
+    ASSOC_NAME : str, optional
+        Path to ASCII file with x, y positions for positional matching.
+        Columns are 1-indexed pixel positions.
+    ASSOC_PARAMS : str
+        Column indices (1-based) for x, y [, mag] in ASSOC_NAME.
+    ASSOC_RADIUS : float
+        Matching radius in pixels (default: 10.0).
+    BACK_SIZE : int
+        Background mesh size (default: 64 pixels).
+    BACK_FILTERSIZE : int
+        Background filter size (default: 3).
+    DEBLEND_NTHRESH : int
+        Number of deblending sub-thresholds (default: 64).
+    DEBLEND_MINCONT : float
+        Minimum contrast for deblending (default: 1e-5).
+    DETECT_THRESH : float
+        Detection threshold in sigma (default: 1.0).
+    FITS : str
+        Path to the science FITS file.
+    FLAG : str
+        Label for auxiliary output files.
+    GAIN : str, optional
+        Header keyword for detector gain (e⁻/ADU). None → gain=1.
+    LOGGER : logging.Logger, optional
+        Logger instance for messages.
+    LOGLEVEL : str
+        Logging level string (default: 'WARNING').
+    PARAMS : str
+        'DEFAULT' or list of column names (currently only DEFAULT supported).
+    PATH : str, optional
+        Directory for auxiliary files (check image, catalog).
+    PHOT_APERTURES : np.ndarray, optional
+        Aperture **diameters** in pixels. If None, a single 10-px aperture
+        is used.  Multiple apertures produce indexed column names:
+        MAG_APER (first), MAG_APER_1 (second), etc.
+    REF_FILE : str
+        Reference image for dual-image mode. Empty string = single-image.
+
+    Returns
+    -------
+    astropy.table.Table
+        Source table with columns:
+        XWIN_IMAGE, YWIN_IMAGE, ALPHAWIN_J2000, DELTAWIN_J2000,
+        FLAGS, A_IMAGE, B_IMAGE, THETA_IMAGE, FWHM_IMAGE, FWHM_WORLD,
+        KRON_RADIUS, FLUX_RADIUS, FLUX_AUTO, FLUXERR_AUTO, MAG_AUTO,
+        MAGERR_AUTO, FLUX_PETRO, FLUXERR_PETRO, MAG_PETRO, MAGERRR_PETRO,
+        MAG_APER[_N], MAGERR_APER[_N], FLUX_APER[_N], FLUXERR_APER[_N],
+        [VECTOR_ASSOC, NUMBER_ASSOC if ASSOC_NAME given]
+    """
+    fits_path = Path(FITS)
+    path_out  = Path(PATH) if PATH else fits_path.parent
+
+    # 1. Load image data -------------------------------------------------------
+    sci_data, sci_header = _load_fits_data(FITS)
+
+    detect_data = sci_data
+    if REF_FILE:
+        detect_data, _ = _load_fits_data(REF_FILE)
+
+    # 2. Background estimation -------------------------------------------------
+    detect_bkg = sep.Background(detect_data,
+                                bw=BACK_SIZE, bh=BACK_SIZE,
+                                fw=BACK_FILTERSIZE, fh=BACK_FILTERSIZE)
+    detect_sub = (detect_data - detect_bkg).astype(np.float64)
+    detect_sub = np.ascontiguousarray(detect_sub)
+
+    sci_bkg    = sep.Background(sci_data,
+                                bw=BACK_SIZE, bh=BACK_SIZE,
+                                fw=BACK_FILTERSIZE, fh=BACK_FILTERSIZE)
+    sci_sub    = (sci_data - sci_bkg).astype(np.float64)
+    sci_sub    = np.ascontiguousarray(sci_sub)
+
+    # Save background-subtracted image as check image (replaces SExtractor
+    # CHECKIMAGE_TYPE APERTURES for the poststamp diagnostic)
+    check_path = path_out / ('check_' + fits_path.name)
+    try:
+        fits.writeto(str(check_path), sci_sub, sci_header, overwrite=True)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.warning(f'Could not write check image: {exc}')
+
+    # 3. Source extraction -----------------------------------------------------
+    # Use global-RMS-based absolute threshold (consistent with SExtractor's
+    # default BACK_TYPE=AUTO without a weight map).
+    # Do NOT pass err= here: sep interprets thresh as thresh*err[i,j] when
+    # an error map is provided, which gives thresh = N_sigma × local_rms²
+    # (far too low) instead of the intended N_sigma × globalrms.
+    thresh = max(float(DETECT_THRESH), float(ANALYSIS_THRESH)) * detect_bkg.globalrms
+
+    # Scale sep internal buffers to image size; defaults of 300k pixels /
+    # 1024 sub-objects are too small for wide-field frames.
+    sep.set_extract_pixstack(min(2_000_000, max(500_000, detect_sub.size // 3)))
+    sep.set_sub_object_limit(262144)
+
+    try:
+        objects = sep.extract(
+            detect_sub, thresh,
+            deblend_nthresh=int(DEBLEND_NTHRESH),
+            deblend_cont=float(DEBLEND_MINCONT),
+            minarea=5,
+            filter_type='matched')
+    except Exception as exc:
+        msg = f'sep.extract failed on {FITS}: {exc}'
+        print(bcolors.FAIL + msg + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.error(msg)
+        return table.Table()
+
+    if len(objects) == 0:
+        msg = f'No sources detected in {FITS}'
+        print(bcolors.WARNING + msg + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.warning(msg)
+        return table.Table()
+
+    # 4. WCS transformation for sky coordinates --------------------------------
+    try:
+        wcs_obj    = wcs.WCS(sci_header)
+        pix_scale  = float(np.median(proj_plane_pixel_scales(wcs_obj)) * 3600.)
+        # sep: 0-indexed; WCS origin=0 → 0-indexed input
+        ra, dec    = wcs_obj.wcs_pix2world(objects['x'], objects['y'], 0)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.warning(f'WCS transformation failed: {exc}')
+        ra  = np.full(len(objects), np.nan)
+        dec = np.full(len(objects), np.nan)
+        pix_scale = 1.0
+
+    # 5. Gain ------------------------------------------------------------------
+    gain_val = float(get_gain(FITS, GAIN, LOGGER))
+
+    # 6. Kron (AUTO) photometry ------------------------------------------------
+    # SExtractor PHOT_AUTOPARAMS = 2.5, 3.5
+    kron_factor = 2.5
+    kron_min_r  = 3.5
+
+    try:
+        kronrad, krflag = sep.kron_radius(
+            sci_sub,
+            objects['x'], objects['y'],
+            objects['a'], objects['b'], objects['theta'],
+            6.0)
+        kronrad = np.maximum(kronrad, 0.0)
+        r_kron  = np.maximum(kron_factor * kronrad, kron_min_r)
+
+        flux_auto, fluxerr_auto, flag_auto = sep.sum_ellipse(
+            sci_sub,
+            objects['x'], objects['y'],
+            objects['a'], objects['b'], objects['theta'],
+            r_kron,
+            gain=gain_val, subpix=5)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.warning(f'Kron photometry failed: {exc}')
+        flux_auto    = np.zeros(len(objects))
+        fluxerr_auto = np.zeros(len(objects))
+        flag_auto    = np.zeros(len(objects), dtype=int)
+        kronrad      = np.zeros(len(objects))
+
+    # 7. Half-light radius (FLUX_RADIUS at 50% enclosed flux) -----------------
+    try:
+        # Reference aperture: 6 * semi-major axis
+        flux_radius, fr_flag = sep.flux_radius(
+            sci_sub,
+            objects['x'], objects['y'],
+            6. * objects['a'],
+            0.5,
+            normflux=np.abs(flux_auto),
+            subpix=5)
+        flux_radius = np.maximum(flux_radius, 0.0)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.warning(f'flux_radius computation failed: {exc}')
+        flux_radius = np.zeros(len(objects))
+
+    # 8. Petrosian photometry (approximation: 2.0 × half-light radius) --------
+    # SExtractor PHOT_PETROPARAMS = 2.0, 3.5
+    petro_factor = 2.0
+    petro_min_r  = 3.5
+
+    try:
+        r_petro = np.maximum(petro_factor * flux_radius, petro_min_r)
+        flux_petro, fluxerr_petro, flag_petro = sep.sum_ellipse(
+            sci_sub,
+            objects['x'], objects['y'],
+            objects['a'], objects['b'], objects['theta'],
+            r_petro,
+            gain=gain_val, subpix=5)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.warning(f'Petrosian photometry failed: {exc}')
+        flux_petro    = flux_auto.copy()
+        fluxerr_petro = fluxerr_auto.copy()
+
+    # 9. Fixed-aperture photometry --------------------------------------------
+    if isinstance(PHOT_APERTURES, (np.ndarray, list)):
+        aper_diameters = np.asarray(PHOT_APERTURES, dtype=float)
     else:
-        params_out    = PARAMS
+        aper_diameters = np.array([10.0])  # 10-pixel diameter default
 
-    if ASSOC_NAME    != None:
-        params_out    += ["VECTOR_ASSOC", "NUMBER_ASSOC"]
+    aper_radii = aper_diameters / 2.0
 
-    if ASSOC_NAME    != None:
-        sew.config["ASSOC_NAME"] = ASSOC_NAME
+    flux_aper_all    = []
+    fluxerr_aper_all = []
+    for r in aper_radii:
+        try:
+            fl, fle, _ = sep.sum_circle(
+                sci_sub,
+                objects['x'], objects['y'],
+                r, gain=gain_val, subpix=5)
+        except Exception:
+            fl  = np.zeros(len(objects))
+            fle = np.zeros(len(objects))
+        flux_aper_all.append(fl)
+        fluxerr_aper_all.append(fle)
 
-    if isinstance(PHOT_APERTURES, np.ndarray):
-        params_out    += list(np.array([("MAG_APER(" + str(i+1) + ")", "MAGERR_APER(" + str(i+1) + ")") for i in range(len(PHOT_APERTURES))]).flatten())
-        params_out    += list(np.array([("FLUX_APER(" + str(i+1) + ")", "FLUXERR_APER(" + str(i+1) + ")") for i in range(len(PHOT_APERTURES))]).flatten())
-        sew.config["PHOT_APERTURES"]    = ','.join([sew.config["PHOT_APERTURES"]+str(PHOT_APERTURES[i]) for i in range(len(PHOT_APERTURES))])
+    # 10. Derived quantities --------------------------------------------------
+    # FWHM from half-light radius (Gaussian approximation):
+    # For a Gaussian, r_half ≈ 1.177 σ and FWHM = 2.355 σ → FWHM ≈ 2 r_half
+    fwhm_image = 2. * flux_radius
+    fwhm_world = fwhm_image * pix_scale
 
-    else:
-        params_out    += ['MAG_APER', 'MAGERR_APER']
-        params_out    += ['FLUX_APER', 'FLUXERR_APER']
-        sew.config["PHOT_APERTURES"]    = PHOT_APERTURES
+    def _safe_mag(flux):
+        """Convert flux to instrumental magnitude (ZP = 0)."""
+        return np.where(flux > 0, -2.5 * np.log10(np.maximum(flux, 1e-30)), np.nan)
 
-    sew.params        = params_out
+    def _safe_magerr(flux, fluxerr):
+        """Flux-ratio magnitude error (symmetric approximation)."""
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.where(flux > 0,
+                            2.5 / np.log(10.) * np.abs(fluxerr) / np.maximum(flux, 1e-30),
+                            np.nan)
 
-    if REF_FILE        == "":
-        output        = sew(FITS)
-    else:
-        output        = sew(",".join([REF_FILE,FITS]))
+    # 11. Assemble output table -----------------------------------------------
+    flags = objects['flag'].astype(int) | flag_auto.astype(int)
 
-    output_path        = os.path.dirname(output['logfilepath'])
+    result = table.Table()
+    result['XWIN_IMAGE']     = objects['x'] + 1.  # 0→1-indexed
+    result['YWIN_IMAGE']     = objects['y'] + 1.
+    result['ALPHAWIN_J2000'] = ra
+    result['DELTAWIN_J2000'] = dec
+    result['FLAGS']          = flags
+    result['A_IMAGE']        = objects['a']
+    result['B_IMAGE']        = objects['b']
+    result['THETA_IMAGE']    = np.degrees(objects['theta'])
+    result['FWHM_IMAGE']     = fwhm_image
+    result['FWHM_WORLD']     = fwhm_world
+    result['KRON_RADIUS']    = kronrad
+    result['FLUX_RADIUS']    = flux_radius
+    result['FLUX_AUTO']      = flux_auto
+    result['FLUXERR_AUTO']   = fluxerr_auto
+    result['MAG_AUTO']       = _safe_mag(flux_auto)
+    result['MAGERR_AUTO']    = _safe_magerr(flux_auto, fluxerr_auto)
+    result['FLUX_PETRO']     = flux_petro
+    result['FLUXERR_PETRO']  = fluxerr_petro
+    result['MAG_PETRO']      = _safe_mag(flux_petro)
+    result['MAGERR_PETRO']   = _safe_magerr(flux_petro, fluxerr_petro)
 
-    print('\nPath of the temporary files: %s\n' %output_path)
+    # Aperture columns: first aperture has no numeric suffix
+    for i, (fl, fle) in enumerate(zip(flux_aper_all, fluxerr_aper_all)):
+        suffix = '' if i == 0 else f'_{i}'
+        result['FLUX_APER'    + suffix] = fl
+        result['FLUXERR_APER' + suffix] = fle
+        result['MAG_APER'     + suffix] = _safe_mag(fl)
+        result['MAGERR_APER'  + suffix] = _safe_magerr(fl, fle)
 
-    for file in glob.glob(output_path+'/'+FITS[0]+'*cat*'):
-        os.system(" mv %s %s" %(file, PATH + FITS.split(".fits")[0]+"_"+FLAG+".phot"))
+    # 12. ASSOC positional matching -------------------------------------------
+    if ASSOC_NAME is not None:
+        try:
+            assoc_data = ascii.read(ASSOC_NAME)
+            col_indices = [int(c.strip()) - 1
+                           for c in ASSOC_PARAMS.split(',')]
+            assoc_x = np.array(assoc_data.columns[col_indices[0]], dtype=float)
+            assoc_y = np.array(assoc_data.columns[col_indices[1]], dtype=float)
+            # Input positions are 1-indexed; compare with 1-indexed result
+            src_x = np.array(result['XWIN_IMAGE'])
+            src_y = np.array(result['YWIN_IMAGE'])
 
-    for file in glob.glob(output_path+'/'+FITS[0]+'*log*'):
-        os.system(" mv %s %s" %(file, PATH + FITS.split(".fits")[0]+"_"+FLAG+".log"))
+            matched_src  = []
+            matched_assoc = []
+            matched_dist  = []
 
-    os.system("rm -r %s" %output_path)
+            for j, (ax, ay) in enumerate(zip(assoc_x, assoc_y)):
+                dists   = np.sqrt((src_x - ax)**2 + (src_y - ay)**2)
+                nearest = int(np.argmin(dists))
+                if dists[nearest] <= ASSOC_RADIUS:
+                    matched_src.append(nearest)
+                    matched_assoc.append(j)
+                    matched_dist.append(float(dists[nearest]))
 
-    return output['table']
+            if not matched_src:
+                if LOGGER:
+                    LOGGER.warning(
+                        f'ASSOC: no match within {ASSOC_RADIUS:.1f} px in {FITS}')
+                return table.Table()
+
+            result = result[matched_src]
+
+            # VECTOR_ASSOC: third column from ASSOC file if available
+            if len(col_indices) > 2:
+                vec = np.array(assoc_data.columns[col_indices[2]], dtype=float)
+                result['VECTOR_ASSOC'] = vec[matched_assoc]
+            else:
+                result['VECTOR_ASSOC'] = np.zeros(len(matched_src))
+
+            result['NUMBER_ASSOC'] = np.array(matched_assoc, dtype=float) + 1.
+
+        except Exception as exc:
+            msg = f'ASSOC matching failed: {exc}'
+            print(bcolors.WARNING + msg + bcolors.ENDC)
+            if LOGGER:
+                LOGGER.warning(msg)
+            # Return unfiltered table without ASSOC columns
+            result['VECTOR_ASSOC'] = np.zeros(len(result))
+            result['NUMBER_ASSOC'] = np.zeros(len(result))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Sextractor output post-processing
+# ---------------------------------------------------------------------------
 
 def sextractor_postprocess(DATA, PRINTHELP=True):
-    """
-    Reprocesses the Sextractor output. Sets negative fluxes to NaN and recalculates magnitude errors. Done to be consistent with forced photometry.
-    """
+    """Post-process source catalog: convert negative fluxes and recompute errors.
 
+    Sets negative fluxes to NaN and recomputes asymmetric magnitude errors
+    from flux and flux-error columns.  This makes the catalog consistent with
+    forced-photometry upper limits.
+
+    Parameters
+    ----------
+    DATA : astropy.table.Table
+        Source catalog with FLUX_*/FLUXERR_* column pairs.
+    PRINTHELP : bool
+        Print informational messages about the processing.
+
+    Returns
+    -------
+    astropy.table.Table
+        Modified catalog (in-place modification, also returned).
+    """
     if PRINTHELP:
-        print(bcolors.WARNING + 'Recalculate magnitude errors [ mag_err_+/- = -2.5 log (F -/+ dF)/F ]' + bcolors.ENDC)
-        print(bcolors.WARNING + 'Runtime warning is expected if F < 0. Objects with negative flux values' + bcolors.ENDC)
-        print(bcolors.WARNING + 'are converted to 3 sigma limits [ mag = -2.5 log (3 dF); mag_err = -99 ]' + bcolors.ENDC)
+        print(bcolors.WARNING
+              + 'Recalculate magnitude errors [ mag_err = -2.5 log(F ± dF)/F ]'
+              + bcolors.ENDC)
+        print(bcolors.WARNING
+              + 'Objects with F ≤ 0 become 3σ upper limits. mag_err = NaN.'
+              + bcolors.ENDC)
 
-    for key in [x for x in DATA.keys() if 'FLUX_' in x and 'RADIUS' not in x]:
-        if any(DATA[key] < 0.):
-            DATA[key][DATA[key] <= 0.] = np.nan
-            DATA[key.replace('FLUX_', 'FLUXERR_')][DATA[key] <= 0] = np.nan
+    flux_keys = [k for k in DATA.colnames
+                 if k.startswith('FLUX_') and 'RADIUS' not in k]
 
-    for key in [x for x in DATA.keys() if 'FLUXERR_' in x]:
-        errp        = -2.5 * np.log10(DATA[key.replace('FLUXERR_', 'FLUX_')] - DATA[key]) + 2.5 * np.log10(DATA[key.replace('FLUXERR_', 'FLUX_')])
-        errm        = +2.5 * np.log10(DATA[key.replace('FLUXERR_', 'FLUX_')] + DATA[key]) - 2.5 * np.log10(DATA[key.replace('FLUXERR_', 'FLUX_')])
-        mid_error    = abs(errp + errm) / 2.
+    for key in flux_keys:
+        err_key = key.replace('FLUX_', 'FLUXERR_')
+        if err_key not in DATA.colnames:
+            continue
+        # Save mask before modifying data (B2 bug fix)
+        neg_mask = np.array(DATA[key]) <= 0.
+        if np.any(neg_mask):
+            DATA[key][neg_mask]     = np.nan
+            DATA[err_key][neg_mask] = np.nan
 
-        DATA[key.replace('FLUXERR_', 'MAGERR_')]        = mid_error
-        DATA[key.replace('FLUXERR_', 'MAGERRP_')]        = errp
-        DATA[key.replace('FLUXERR_', 'MAGERRM_')]        = errm
+    for key in [k for k in DATA.colnames if k.startswith('FLUXERR_')]:
+        flux_key = key.replace('FLUXERR_', 'FLUX_')
+        if flux_key not in DATA.colnames:
+            continue
+
+        flux    = np.array(DATA[flux_key], dtype=float)
+        fluxerr = np.array(DATA[key],      dtype=float)
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            errp = np.where(flux > 0,
+                            -2.5 * np.log10(flux - fluxerr)
+                            + 2.5 * np.log10(flux),
+                            np.nan)
+            errm = np.where(flux > 0,
+                            -2.5 * np.log10(flux)
+                            + 2.5 * np.log10(flux + fluxerr),
+                            np.nan)
+
+        mid_key  = key.replace('FLUXERR_', 'MAGERR_')
+        errp_key = key.replace('FLUXERR_', 'MAGERRP_')
+        errm_key = key.replace('FLUXERR_', 'MAGERRM_')
+
+        DATA[mid_key]  = np.abs(errp + errm) / 2.
+        DATA[errp_key] = errp
+        DATA[errm_key] = errm
 
     return DATA
 
-def zeropoint(TABLE_REF, TABLE_NEW, FITS='', LOGGER=None, NITER=30000, PATH='', TOLERANCE=1):
 
-    print(bcolors.OKGREEN + 'Bootstrap ZP from ' + str(NITER) + ' resamplings\n' + bcolors.ENDC)
+# ---------------------------------------------------------------------------
+# Zeropoint determination
+# ---------------------------------------------------------------------------
 
-    for key in TABLE_REF.keys():
-        if key not in ['RA', 'DEC', 'MAG_CAT', 'MAGERR_CAT']:
+def zeropoint(TABLE_REF, TABLE_NEW, FITS='', LOGGER=None,
+              NITER=30000, PATH='', TOLERANCE=1):
+    """Compute photometric zeropoints from comparison star measurements.
+
+    Cross-matches the reference catalog (known magnitudes) with the
+    instrumental catalog (measured fluxes), then uses bootstrap resampling
+    via :func:`stat_tools.statNclip` to derive a robust median zeropoint
+    and asymmetric 1σ uncertainties for each aperture.
+
+    Parameters
+    ----------
+    TABLE_REF : astropy.table.Table
+        Reference catalog with columns RA, DEC, MAG_CAT, MAGERR_CAT.
+    TABLE_NEW : astropy.table.Table
+        Instrumental catalog from :func:`sextractor_photometry` with at least
+        ALPHAWIN_J2000 and DELTAWIN_J2000 for cross-matching.
+    FITS : str
+        Science FITS filename (used for output file naming only).
+    LOGGER : logging.Logger, optional
+        Logger instance.
+    NITER : int
+        Number of bootstrap iterations (default: 30 000).
+    PATH : str
+        Output directory for diagnostic plots.
+    TOLERANCE : float
+        Cross-matching tolerance in arcseconds (default: 1.0).
+
+    Returns
+    -------
+    astropy.table.Table
+        Zeropoint table with columns METHOD, ZP, ZP_ERRP, ZP_ERRM, NUMBER.
+    """
+    print(bcolors.OKGREEN
+          + f'Bootstrap ZP from {NITER} resamplings\n'
+          + bcolors.ENDC)
+
+    # Keep only essential columns in reference table
+    for key in list(TABLE_REF.colnames):
+        if key not in ('RA', 'DEC', 'MAG_CAT', 'MAGERR_CAT'):
             del TABLE_REF[key]
 
-    TABLE_REF_keys            = TABLE_REF.keys()
+    TABLE_REF_keys = list(TABLE_REF.colnames)
 
-    TABLE_NEW_keys            = ['ALPHAWIN_J2000', 'DELTAWIN_J2000', 'XWIN_IMAGE', 'YWIN_IMAGE', 'MAG_AUTO', 'MAGERR_AUTO', 'MAG_PETRO',
-                            'MAGERR_PETRO', 'FLUX_AUTO', 'FLUXERR_AUTO', 'FLUX_PETRO', 'FLUXERR_PETRO', 'FWHM_IMAGE', 'FWHM_WORLD',
-                            'A_IMAGE', 'B_IMAGE', 'THETA_IMAGE', 'KRON_RADIUS', 'FLUX_RADIUS', 'FLAGS', 'VECTOR_ASSOC', 'NUMBER_ASSOC',
-                            'MAG_APER', 'MAG_APER_1', 'MAG_APER_2', 'MAG_APER_3', 'MAGERR_APER', 'MAGERR_APER_1', 'MAGERR_APER_2',
-                            'MAGERR_APER_3', 'FLUX_APER', 'FLUX_APER_1', 'FLUX_APER_2', 'FLUX_APER_3', 'FLUXERR_APER', 'FLUXERR_APER_1',
-                            'FLUXERR_APER_2', 'FLUXERR_APER_3']
-    
-    TABLE_REF                = np.asarray(TABLE_REF[TABLE_REF_keys]).view((float, len(TABLE_REF.dtype.names)))
-    TABLE_NEW                = np.asarray(TABLE_NEW[TABLE_NEW_keys]).view((float, len(TABLE_NEW.dtype.names)))
+    # Dynamically build TABLE_NEW column list (do not hardcode aperture count)
+    base_keys = [k for k in ('ALPHAWIN_J2000', 'DELTAWIN_J2000',
+                              'XWIN_IMAGE', 'YWIN_IMAGE',
+                              'MAG_AUTO', 'MAGERR_AUTO',
+                              'MAG_PETRO', 'MAGERR_PETRO',
+                              'FLUX_AUTO', 'FLUXERR_AUTO',
+                              'FLUX_PETRO', 'FLUXERR_PETRO',
+                              'FWHM_IMAGE', 'FWHM_WORLD',
+                              'A_IMAGE', 'B_IMAGE', 'THETA_IMAGE',
+                              'KRON_RADIUS', 'FLUX_RADIUS', 'FLAGS',
+                              'VECTOR_ASSOC', 'NUMBER_ASSOC')
+                 if k in TABLE_NEW.colnames]
 
-    # pdb.set_trace()
+    aper_keys = sorted(
+        [k for k in TABLE_NEW.colnames
+         if k.startswith(('MAG_APER', 'MAGERR_APER', 'FLUX_APER', 'FLUXERR_APER'))],
+        key=lambda k: (k.split('_')[0],
+                       int(k.rsplit('_', 1)[-1]) if k.rsplit('_', 1)[-1].isdigit() else -1))
 
-    merged                    = cat_tools.wrapper_crossmatch(TABLE_REF, TABLE_NEW, TOLERANCE)
-    merged                    = table.Table(merged, names=TABLE_NEW_keys + TABLE_REF_keys + ['DIST'])
+    TABLE_NEW_keys = base_keys + aper_keys
 
-    merged['DIST']            = merged['DIST']*3600
-    merged['DIST'].format    ='.3f'
+    # Convert to plain float arrays for fast cross-matching
+    TABLE_REF_arr = rfn.structured_to_unstructured(
+        np.asarray(TABLE_REF[TABLE_REF_keys]), dtype=float)
+    TABLE_NEW_arr = rfn.structured_to_unstructured(
+        np.asarray(TABLE_NEW[TABLE_NEW_keys]), dtype=float)
 
-    # If the ZP array is empty, the WCS system of the image is a bit off. Increase cross-match radius.
-    # print(merged)
+    merged_arr = cat_tools.wrapper_crossmatch(TABLE_REF_arr, TABLE_NEW_arr,
+                                               TOLERANCE)
+    if len(merged_arr) == 0:
+        msg = ('No cross-matched stars for ZP calculation. '
+               f'Check coordinates and tolerance ({TOLERANCE} arcsec).')
+        print(bcolors.FAIL + msg + bcolors.ENDC)
+        if LOGGER:
+            LOGGER.error(msg)
+        return table.Table(names=('METHOD', 'ZP', 'ZP_ERRP', 'ZP_ERRM', 'NUMBER'),
+                           dtype=('U100', 'f', 'f', 'f', 'g'))
 
-    # Extract magnitude keywords
+    merged = table.Table(merged_arr,
+                         names=TABLE_NEW_keys + TABLE_REF_keys + ['DIST'])
+    merged['DIST']        = merged['DIST'] * 3600.
+    merged['DIST'].format = '.3f'
 
-    keys_mag                = [x for x in merged.keys() if ('MAG_' in x) and ('MAG_CAT' != x) and ('MAG_INS' != x)]
+    keys_mag = [k for k in merged.colnames
+                if ('MAG_' in k)
+                and k not in ('MAG_CAT', 'MAG_INS')]
 
-    # Setup table for zeropoint calculation
-
-    result                    = table.Table(names=('METHOD', 'ZP', 'ZP_ERRP', 'ZP_ERRM', 'NUMBER'), dtype=('S100', 'f', 'f', 'f', 'g'))
+    result = table.Table(
+        names=('METHOD', 'ZP', 'ZP_ERRP', 'ZP_ERRM', 'NUMBER'),
+        dtype=('U100', 'f', 'f', 'f', 'g'))
     result['NUMBER'].format = '7g'
 
-    # Setup up ZP diagnostic plot
+    # Diagnostic ZP plot
+    fig = plt.figure(5, figsize=(np.sqrt(2.) * 9, 9))
+    fig.subplots_adjust(hspace=0.3, wspace=0.4)
 
-    fig                        = plt.figure(5, figsize=(np.sqrt(2) * 9,9))
-    fig.subplots_adjust(hspace=0.2, wspace=0.3)
+    # Shared axis labels via invisible overlay
+    ax_bg = fig.add_subplot(111)
+    for spine in ax_bg.spines.values():
+        spine.set_visible(False)
+    ax_bg.tick_params(labelcolor='w', top=False, bottom=False,
+                      left=False, right=False)
+    ax_bg.set_xlabel('Apparent magnitude')
+    ax_bg.set_ylabel('Zeropoint')
+    ax_bg.yaxis.set_label_coords(-0.08, 0.5)
 
-    ax                        = fig.add_subplot(111)
-    ax.spines['top'].set_color('none')
-    ax.spines['bottom'].set_color('none')
-    ax.spines['left'].set_color('none')
-    ax.spines['right'].set_color('none')
-    ax.tick_params(labelcolor='w', top='off', bottom='off', left='off', right='off')
+    ncols   = 3
+    nrows   = max(1, int(np.ceil(len(keys_mag) / ncols)))
 
-    i                        = 0
+    for i, key in enumerate(keys_mag):
+        # Per-star ZP = catalog_mag - instrumental_mag
+        temp_zp     = np.array(merged['MAG_CAT'] - merged[key], dtype=float)
+        err_key     = 'MAGERR_' + key.split('_', 1)[1]
+        if err_key in merged.colnames:
+            temp_zp_err = np.sqrt(
+                np.array(merged['MAGERR_CAT'], dtype=float)**2
+                + np.array(merged[err_key], dtype=float)**2)
+        else:
+            temp_zp_err = np.array(merged['MAGERR_CAT'], dtype=float)
 
-    # Compute zeropoint
-
-    for key in keys_mag:
-
-
-        temp_zp                = merged['MAG_CAT'] - merged[key]
-        temp_zp_err            = np.sqrt(merged['MAGERR_CAT']**2 + merged['MAGERR_'+key.split('_')[1]]**2)
-
-        mask_negative        = np.where(temp_zp > 0)[0]
-
-        temp_zp                = np.array([temp_zp[mask_negative], temp_zp_err[mask_negative]]).T
-
-        # Print individual ZP measurements
+        pos_mask    = temp_zp > 0
+        temp_zp     = np.column_stack([temp_zp[pos_mask],
+                                        temp_zp_err[pos_mask]])
+        cat_mag_sel = np.array(merged['MAG_CAT'])[pos_mask]
 
         print(bcolors.OKGREEN + key + bcolors.ENDC)
+        print(np.array([f'{v:.3f}' for v in temp_zp[:, 0]]))
 
-        print(np.array(['{:.3f}'.format(j) for j in temp_zp[:,0]]))
-        print(np.array(['{:.3f}'.format(j) for j in temp_zp[:,1]]))
+        if LOGGER:
+            LOGGER.info(key)
+            LOGGER.info(np.array([f'{v:.3f}' for v in temp_zp[:, 0]]))
 
-        print('')
-
-        LOGGER.info(key)
-        LOGGER.info(np.array(['{:.3f}'.format(j) for j in temp_zp[:,0]]))
-        LOGGER.info(np.array(['{:.3f}'.format(j) for j in temp_zp[:,1]]))
-
-
-        if len(temp_zp)     > 0:
-            temp_zp_ana        = np.array(stat_tools.statNclip(temp_zp, NITER=NITER))
-            result.add_row(np.hstack([key, temp_zp_ana]))
-
+        if len(temp_zp) > 0:
+            zp_ana = np.array(stat_tools.statNclip(temp_zp, NITER=NITER))
+            result.add_row(np.hstack([key, zp_ana]))
         else:
             result.add_row(np.hstack([key, np.zeros(4)]))
 
-        # Add to plot
+        # Subplot
+        ax = fig.add_subplot(nrows, ncols, i + 1)
 
-        #import pdb; pdb.set_trace()
-        zp_plot                = fig.add_subplot(int(len(keys_mag)/3) if len(keys_mag)%3 == 0 else int(len(keys_mag)/3) + 1, 3, i+1)
+        if len(temp_zp) > 0:
+            zp_25 = np.percentile(temp_zp[:, 0], 25)
+            zp_75 = np.percentile(temp_zp[:, 0], 75)
+            iqr   = zp_75 - zp_25
+            good  = ((temp_zp[:, 0] > zp_25 - 1.5 * iqr)
+                     & (temp_zp[:, 0] < zp_75 + 1.5 * iqr))
 
-        if len(temp_zp)     > 0:
+            ax.axhline(zp_ana[0], lw=4, color=vigit_color_12)
+            ax.axhline(zp_ana[0] + zp_ana[1], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(zp_ana[0] - zp_ana[2], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(zp_75 + 1.5 * iqr,     lw=2, color=vigit_color_12, ls=':')
+            ax.axhline(zp_25 - 1.5 * iqr,     lw=2, color=vigit_color_12, ls=':')
 
-            zp_50ile        = np.percentile(temp_zp[:,0], 50)
-            zp_25ile        = np.percentile(temp_zp[:,0], 25)
-            zp_75ile        = np.percentile(temp_zp[:,0], 75)
+            if np.any(~good):
+                ax.errorbar(cat_mag_sel[~good], temp_zp[~good, 0],
+                            temp_zp[~good, 1],
+                            marker='o', ms=9, color='0.75',
+                            elinewidth=2, capsize=0, lw=0)
+            if np.any(good):
+                ax.errorbar(cat_mag_sel[good], temp_zp[good, 0],
+                            temp_zp[good, 1],
+                            marker='o', ms=9, color='k',
+                            elinewidth=2, capsize=0, lw=0)
 
-            mask_good        = np.where( ( temp_zp[:, 0] > (zp_25ile - 1.5*(zp_75ile-zp_25ile)) ) & ( temp_zp[:, 0] < (zp_75ile + 1.5*(zp_75ile-zp_25ile)) ))[0]
-            mask_bad        = np.where( ( temp_zp[:, 0] < (zp_25ile - 1.5*(zp_75ile-zp_25ile)) ) | ( temp_zp[:, 0] > (zp_75ile + 1.5*(zp_75ile-zp_25ile)) ))[0]
+            if len(cat_mag_sel) > 1:
+                ax.set_xlim(cat_mag_sel.min() - 0.5, cat_mag_sel.max() + 0.5)
+                ax.xaxis.set_major_locator(plt.MultipleLocator(1))
 
-            zp_plot.axhline(temp_zp_ana[0], lw=4, color=vigit_color_12)
-            zp_plot.axhline(temp_zp_ana[0]+temp_zp_ana[1], lw=2, color=vigit_color_12, ls='--')
-            zp_plot.axhline(temp_zp_ana[0]-temp_zp_ana[2], lw=2, color=vigit_color_12, ls='--')
+        ax.grid(True)
+        label = key.replace('_', r'\_')
+        ax.text(0.95, 0.95, label, ha='right', va='top',
+                transform=ax.transAxes, fontsize=legend_size)
 
-            zp_plot.axhline(zp_75ile + 1.5*(zp_75ile-zp_25ile), lw=2, color=vigit_color_12, ls=':')
-            zp_plot.axhline(zp_25ile - 1.5*(zp_75ile-zp_25ile), lw=2, color=vigit_color_12, ls=':')
+    plt.savefig(str(Path(PATH) / (Path(FITS).stem + '_zp.pdf')), dpi=600)
+    plt.close()
 
-            if len(mask_bad) > 0:
-                zp_plot.errorbar(merged['MAG_CAT'][mask_negative][mask_bad],  temp_zp[:, 0][mask_bad],  temp_zp[:, 1][mask_bad],  marker='o', ms=9, color='0.75', elinewidth=2, capsize=0, lw=0)
+    # FWHM distribution plot
+    plt.figure(6, figsize=(np.sqrt(2.) * 9, 9))
+    ax_fwhm = plt.subplot(111)
 
-            if len(mask_good) > 0:
-                zp_plot.errorbar(merged['MAG_CAT'][mask_negative][mask_good], temp_zp[:, 0][mask_good], temp_zp[:, 1][mask_good], marker='o', ms=9, color='k', elinewidth=2, capsize=0, lw=0)
+    use_fwhm = ('FWHM_IMAGE' in merged.colnames
+                and not np.all(np.array(merged['FWHM_IMAGE']) == 0))
+    fwhm_vals = (np.array(merged['FWHM_IMAGE'], dtype=float) if use_fwhm
+                 else np.array(merged['FLUX_RADIUS'], dtype=float) * 2. / 1.1)
+    fwhm_label = 'FWHM (px)' if use_fwhm else 'FWHM estimate (px)'
 
-            zp_plot.set_xlim(min(merged['MAG_CAT'][mask_negative]) - 0.5, max(merged['MAG_CAT'][mask_negative]) + 0.5)
+    finite = fwhm_vals[np.isfinite(fwhm_vals)]
+    if len(finite) > 0:
+        ax_fwhm.hist(finite, range=(0, 30), density=True,
+                     color=vigit_color_1, bins=20)
+        ax_fwhm.hist(finite, range=(0, 30), density=True,
+                     color='k', bins=10000, cumulative=True,
+                     histtype='step', lw=4)
+        p50, p16, p84 = np.percentile(finite, [50, 16, 84])
+        ax_fwhm.axvline(p50, lw=4, color='k')
+        ax_fwhm.axvline(p16, lw=2, ls=':', color='k')
+        ax_fwhm.axvline(p84, lw=2, ls=':', color='k')
 
-            majorLocator    = plt.MultipleLocator(1)
-            zp_plot.xaxis.set_major_locator(majorLocator)
+    ax_fwhm.set_xlim(0, 30)
+    ax_fwhm.set_ylim(0, 1.1)
+    ax_fwhm.set_xlabel(fwhm_label)
+    ax_fwhm.set_ylabel('Normalised count / CDF')
 
-        zp_plot.grid(True)
-        zp_plot.text(right - 0.05, top - 0.05, key.replace('_', '\_'), ha='right', va='top', transform = zp_plot.transAxes, fontsize=legend_size)
-
-        i                    += 1
-
-    ax.set_xlabel('Apparent magnitude', )
-    ax.set_ylabel('Zeropoint')
-    ax.yaxis.set_label_coords(-0.1, 0.5)
-
-    plt.savefig(PATH+FITS.replace('.fits', '_zp.pdf'), dpi=600)
-
-    # Diagnostic plots (cont'ed)
-
-    # FWHM distribution
-
-    plt.figure(6, figsize=(np.sqrt(2) * 9,9))
-    fwhm_plot                = plt.subplot(111)
-
-    if all(merged['FWHM_IMAGE'] == 0):
-
-        fwhm_plot.hist(merged['FLUX_RADIUS']*2/1.1, range=(0,20), density=1, color=vigit_color_1)
-        fwhm_plot.hist(merged['FLUX_RADIUS']*2/1.1, range=(0,20), density=1, color='k', bins=10000, cumulative=True, histtype='step', lw=4)
-        fwhm_plot.axvline(np.percentile(merged['FLUX_RADIUS']*2/1.1, 50), lw=4, color='k')
-        fwhm_plot.axvline(np.percentile(merged['FLUX_RADIUS']*2/1.1, 50-34), lw=2, ls=':', color='k')
-        fwhm_plot.axvline(np.percentile(merged['FLUX_RADIUS']*2/1.1, 50+34), lw=2, ls=':', color='k')
-
-    else:
-
-        fwhm_plot.hist(merged['FWHM_IMAGE'], range=(0,30), density=1, color=vigit_color_1)
-        fwhm_plot.hist(merged['FWHM_IMAGE'], range=(0,30), density=1, color='k', bins=10000, cumulative=True, histtype='step', lw=4)
-        fwhm_plot.axvline(np.percentile(merged['FWHM_IMAGE'], 50), lw=4, color='k')
-        fwhm_plot.axvline(np.percentile(merged['FWHM_IMAGE'], 50-34), lw=2, ls=':', color='k')
-        fwhm_plot.axvline(np.percentile(merged['FWHM_IMAGE'], 50+34), lw=2, ls=':', color='k')
-
-    fwhm_plot.set_xlim(0,30)
-    fwhm_plot.set_ylim(0,1.1)
-    fwhm_plot.set_xlabel('FWHM (px)')
-    fwhm_plot.set_ylabel('Histogramme')
-
-    plt.savefig(PATH+FITS.replace('.fits', '_fwhm.pdf'), dpi=600)
+    plt.savefig(str(Path(PATH) / (Path(FITS).stem + '_fwhm.pdf')), dpi=600)
+    plt.close()
 
     return result
