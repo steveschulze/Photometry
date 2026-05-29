@@ -26,7 +26,7 @@ from      astropy import table
 import    cat_tools
 import    copy
 import    fits_tools
-from      misc import bcolors
+from      utils import bcolors
 import    numpy as np
 from      pathlib import Path
 import    sys
@@ -125,7 +125,7 @@ def main(args=None):
                 overwrite=True, format='no_header')
 
         # Bessel
-        result = cat_tools.SDSS_to_Bessel(result_sdss)
+        result = cat_tools.sdss_to_bessel(result_sdss)
         for key in [k for k in result.colnames if 'BESSEL' in k]:
             result[key].format = '.4f'
         for f in ('B', 'V', 'R', 'I'):
@@ -139,7 +139,7 @@ def main(args=None):
 
         # GROND
         print(bcolors.WARNING + 'Convert SDSS -> GROND' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_GROND(result_sdss)
+        result = cat_tools.sdss_to_grond(result_sdss)
         for key in [k for k in result.colnames if 'GROND' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z'):
@@ -153,7 +153,7 @@ def main(args=None):
 
         # DES  (was printing "Convert SDSS -> GROND" — fixed)
         print(bcolors.WARNING + 'Convert SDSS -> DES' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_DES(result_sdss)
+        result = cat_tools.sdss_to_des(result_sdss)
         for key in [k for k in result.colnames if 'DES' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z'):
@@ -208,7 +208,7 @@ def main(args=None):
         gaia_arr = np.array(list(np.asarray(result_gaia).tolist()))
         ps1_arr  = np.array(list(np.asarray(result_ps1).tolist()))
 
-        matched_arr  = cat_tools.wrapper_crossmatch(gaia_arr, ps1_arr, 0.5)
+        matched_arr  = cat_tools.crossmatch_catalogs(gaia_arr, ps1_arr, 0.5)
         matched      = table.Table(
             matched_arr,
             names=ps1_keys
@@ -240,7 +240,7 @@ def main(args=None):
 
         # PS1 → SDSS
         print(bcolors.WARNING + 'Convert PS1 -> SDSS' + bcolors.ENDC)
-        result        = cat_tools.PS1_to_SDSS(result_ps1_clean)
+        result        = cat_tools.ps1_to_sdss(result_ps1_clean)
         for key in [k for k in result.colnames if 'SDSS' in k]:
             result[key].format = '.4f'
         result_sdss_from_ps1 = copy.deepcopy(result)
@@ -257,7 +257,7 @@ def main(args=None):
 
         # PS1 → HSC
         print(bcolors.WARNING + 'Convert PS1 -> HSC' + bcolors.ENDC)
-        result = cat_tools.PS1_to_HSC(result_ps1_clean)
+        result = cat_tools.ps1_to_hsc(result_ps1_clean)
         for key in [k for k in result.colnames if 'HSC' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z', 'y'):
@@ -270,7 +270,7 @@ def main(args=None):
 
         # PS1 → SDSS → Bessel
         print(bcolors.WARNING + 'Convert PS1 -> SDSS -> Bessel' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_Bessel(result_sdss_from_ps1)
+        result = cat_tools.sdss_to_bessel(result_sdss_from_ps1)
         for key in [k for k in result.colnames if 'BESSEL' in k]:
             result[key].format = '.4f'
         for f in ('B', 'V', 'R', 'I'):
@@ -283,7 +283,7 @@ def main(args=None):
 
         # PS1 → ZTF
         print(bcolors.WARNING + 'Convert PS1 -> ZTF' + bcolors.ENDC)
-        result = cat_tools.PS1_to_ZTF(result_ps1_clean)
+        result = cat_tools.ps1_to_ztf(result_ps1_clean)
         for key in [k for k in result.colnames if 'ZTF' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r'):
@@ -296,7 +296,7 @@ def main(args=None):
 
         # PS1 → SDSS → GROND
         print(bcolors.WARNING + 'Convert PS1 -> SDSS -> GROND' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_GROND(result_sdss_from_ps1)
+        result = cat_tools.sdss_to_grond(result_sdss_from_ps1)
         for key in [k for k in result.colnames if 'GROND' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z'):
@@ -309,7 +309,7 @@ def main(args=None):
 
         # PS1 → SDSS → DES
         print(bcolors.WARNING + 'Convert PS1 -> SDSS -> DES' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_DES(result_sdss_from_ps1)
+        result = cat_tools.sdss_to_des(result_sdss_from_ps1)
         for key in [k for k in result.colnames if 'DES' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z'):
@@ -334,7 +334,7 @@ def main(args=None):
 
     try:
         import routines_noir
-        result = routines_noir.query_noir_datalab_stars(
+        result = cat_tools.query_noir_datalab_stars(
             coordinates.ra.value, coordinates.dec.value, args.radius)
 
         if len(result) > 0:
@@ -376,7 +376,7 @@ def main(args=None):
             result['i_DES_ERR'] = result['z_DES_ERR']
 
             print(bcolors.WARNING + 'Convert LS -> SDSS' + bcolors.ENDC)
-            result = cat_tools.DES_to_SDSS(result)
+            result = cat_tools.des_to_sdss(result)
             for key in [k for k in result.colnames if 'SDSS' in k]:
                 result[key].format = '.4f'
             result_sdss_from_ls = copy.deepcopy(result)
@@ -393,7 +393,7 @@ def main(args=None):
                     overwrite=True, format='no_header')
 
             print(bcolors.WARNING + 'Convert LS -> SDSS -> Bessel' + bcolors.ENDC)
-            result = cat_tools.SDSS_to_Bessel(result_sdss_from_ls)
+            result = cat_tools.sdss_to_bessel(result_sdss_from_ls)
             for key in [k for k in result.colnames if 'BESSEL' in k]:
                 result[key].format = '.4f'
             for f in ('B', 'V', 'R', 'I'):
@@ -454,7 +454,7 @@ def main(args=None):
                 overwrite=True, format='no_header')
 
         print(bcolors.WARNING + 'Convert DES -> SDSS' + bcolors.ENDC)
-        result = cat_tools.DES_to_SDSS(des_raw)
+        result = cat_tools.des_to_sdss(des_raw)
         for key in [k for k in result.colnames if 'SDSS' in k]:
             result[key].format = '.4f'
         result_sdss_from_des = copy.deepcopy(result)
@@ -470,7 +470,7 @@ def main(args=None):
                 overwrite=True, format='no_header')
 
         print(bcolors.WARNING + 'Convert DES -> SDSS -> Bessel' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_Bessel(result_sdss_from_des)
+        result = cat_tools.sdss_to_bessel(result_sdss_from_des)
         for key in [k for k in result.colnames if 'BESSEL' in k]:
             result[key].format = '.4f'
         for f in ('B', 'V', 'R', 'I'):
@@ -483,7 +483,7 @@ def main(args=None):
                 overwrite=True, format='no_header')
 
         print(bcolors.WARNING + 'Convert DES -> SDSS -> GROND' + bcolors.ENDC)
-        result = cat_tools.SDSS_to_GROND(result_sdss_from_des)
+        result = cat_tools.sdss_to_grond(result_sdss_from_des)
         for key in [k for k in result.colnames if 'GROND' in k]:
             result[key].format = '.4f'
         for f in ('g', 'r', 'i', 'z'):
@@ -551,7 +551,7 @@ def main(args=None):
                     str(outdir / f'SkyMapper_SDSS_{f}.cat'),
                     overwrite=True, format='no_header')
 
-            cat_sm = cat_tools.SDSS_to_Bessel(cat_sm)
+            cat_sm = cat_tools.sdss_to_bessel(cat_sm)
             for key in [k for k in cat_sm.colnames if 'BESSEL' in k]:
                 cat_sm[key].format = '.4f'
             for f in ('B', 'V', 'R', 'I'):
