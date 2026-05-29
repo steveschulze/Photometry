@@ -18,7 +18,6 @@ Version 2026-05-29
 | `photometry.py` | Aperture photometry for ground-based images |
 | `photometry_hst.py` | Aperture photometry + curve-of-growth for HST images |
 
-
 | Module | Purpose |
 |--------|---------|
 | `extraction.py` | sep source detection, aperture photometry, background estimation |
@@ -26,7 +25,7 @@ Version 2026-05-29
 | `hst_routines.py` | HST-specific photometry, aperture corrections (pysynphot), curve-of-growth |
 | `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching, NOIR DataLab |
 | `fits_tools.py` | FITS utilities and WCS coordinate transformations |
-| `utils.py` | Terminal colour codes and bootstrap statistics |
+| `utils.py` | Terminal colour codes, bootstrap statistics, and `setup_logging` |
 | `plotsettings.py` | Matplotlib style and Vigit colour scheme |
 | `sip_to_pv.py` | Convert SIP distortion keywords to PV format |
 
@@ -56,6 +55,20 @@ photometry use the `sep` Python library (C-level SExtractor algorithms).
 ## Quick start
 
 Run all commands from the directory containing the FITS files.
+
+### Negative declinations
+
+When the declination is negative, use the `=` form to prevent the shell
+interpreting the minus sign as a flag:
+
+```bash
+# Correct — works in bash, zsh, and sh
+--dec="-12:20:20.2"
+--dec="-0.726"
+
+# Also works (leading space before the minus)
+--dec " -12:20:20.2"
+```
 
 ### 1. Retrieve reference catalogues
 
@@ -119,20 +132,20 @@ to the Calibration Data Base System (CDBS) directory.
 
 ```
 field_calibration.py
-        │ reference catalogue (.cat)
-        ▼
+        | reference catalogue (.cat)
+        v
 photometry.py
   Step 1: Verify target in image footprint (WCS)
   Step 2: Build local comparison-star sequence
-          ├─ Run sep on reference star positions (ASSOC mode)
-          ├─ IQR-clip, flag filter, maxstars limit
-          └─ Cross-match sep catalog × reference catalog
+          +-- Run sep on reference star positions (ASSOC mode)
+          +-- IQR-clip, flag filter, maxstars limit
+          +-- Cross-match sep catalog x reference catalog
   Step 3: Zeropoint determination
-          ├─ Bootstrap resampling (NITER=1000, ~0.07 s)
-          └─ Diagnostic plots: ZP vs. magnitude, FWHM distribution
+          +-- Bootstrap resampling (NITER=1000, ~0.07 s)
+          +-- Diagnostic plots: ZP = m_cat - m_inst vs. magnitude, FWHM distribution
   Step 4: Aperture photometry on science target
-          ├─ Run sep on full image (all sources)
-          └─ Run sep with ASSOC near target position
+          +-- Run sep on full image (all sources)
+          +-- Run sep with ASSOC near target position
   Step 5: Calibrate and summarise
   Step 6: Poststamp image
   Step 7: Write output files
@@ -143,36 +156,48 @@ photometry.py
 
 ## Output files
 
-| File | Description |
-|------|-------------|
-| `*_phot.log` | Calibrated science photometry summary |
-| `*_zp.log` | Zeropoint table (one row per aperture) |
-| `*_all_abs_cal.phot` | Full source catalogue with calibrated magnitudes |
-| `*_zp.pdf` | Zeropoint diagnostic plot (ZP vs. reference magnitude) |
-| `*_fwhm.pdf` | FWHM distribution of comparison stars |
-| `*_std.pdf` | Instrumental vs. apparent magnitude scatter plot |
-| `*_poststamp.pdf` | Two-panel cutout: expected vs. observed position |
+| File | Format | Description |
+|------|--------|-------------|
+| `*_phot.log` | ECSV | Calibrated science photometry summary |
+| `*_zp.log` | ECSV | Zeropoint table (one row per aperture) |
+| `*_all_abs_cal.fits` | FITS BINTABLE | Full source catalogue with calibrated magnitudes |
+| `*_zp.pdf` | PDF | Zeropoint diagnostic plot (ZP = m_cat - m_inst vs. magnitude) |
+| `*_fwhm.pdf` | PDF | FWHM distribution of comparison stars |
+| `*_std.pdf` | PDF | Instrumental vs. apparent magnitude scatter plot |
+| `*_poststamp.pdf` | PDF | Two-panel cutout: expected vs. observed position |
+
+ECSV (Enhanced Character Separated Values) is plain text with an embedded
+YAML header that preserves column dtypes, units, and descriptions.  Files can
+be opened in any text editor and read back with `astropy.io.ascii.read()`.
+The FITS catalog is directly readable by TopCat, DS9, and
+`astropy.table.Table.read()`.
 
 ### Photometry log format
 
-The `*_phot.log` file contains one row per measured quantity:
+The `*_phot.log` ECSV file contains one row per measured quantity:
 
 ```
-PROPERTY          VALUE     ERROR+   ERROR-   COMMENT
-FILENAME          nan       nan      nan      IMAGE.fits
-DATE-OBS          nan       nan      nan      2015-08-15T04:30:00
-MJD               nan       nan      nan      57249.1875
-EXPTIME           nan       nan      nan      300.0
-RA                173.423   nan      nan      degree
-DEC               0.726     nan      nan      degree
-XWIN_IMAGE_OBS    1212.0    nan      nan      pixel
-YWIN_IMAGE_OBS    1211.0    nan      nan      pixel
-DISTANCE (arcsec) 0.32      nan      nan      arcsec
-MAG_AUTO          22.50     0.10     0.09     mag
-MAG_APER          22.50     0.03     0.03     mag    ← smallest aperture
-MAG_APER_1        22.30     0.02     0.02     mag
-MAG_APER_2        22.23     0.02     0.02     mag
-MAG_APER_3        21.75     0.02     0.02     mag    ← largest aperture
+# %ECSV 1.0
+# ---
+# datatype: [{name: PROPERTY, datatype: string}, ...]
+PROPERTY           VALUE     ERROR+   ERROR-   COMMENT
+FILENAME           nan       nan      nan      IMAGE.fits
+DATE-OBS           nan       nan      nan      2015-08-15T04:30:00
+MJD                nan       nan      nan      57249.1875
+EXPTIME            nan       nan      nan      300.0
+RA                 173.423   nan      nan      degree
+DEC                0.726     nan      nan      degree
+XWIN_IMAGE_EXP     1212.0    nan      nan      pixel    <- WCS-expected position
+YWIN_IMAGE_EXP     1211.0    nan      nan      pixel
+XWIN_IMAGE_OBS     1212.0    nan      nan      pixel    <- detected centroid
+YWIN_IMAGE_OBS     1211.0    nan      nan      pixel
+DISTANCE (arcsec)  0.32      nan      nan      arcsec
+MAG_AUTO           22.50     0.10     0.09     mag      <- Kron magnitude
+MAG_PETRO          22.51     0.11     0.10     mag      <- Petrosian magnitude
+MAG_APER           22.50     0.03     0.03     mag      <- smallest aperture
+MAG_APER_1         22.30     0.02     0.02     mag
+MAG_APER_2         22.23     0.02     0.02     mag
+MAG_APER_3         21.75     0.02     0.02     mag      <- largest aperture
 ```
 
 All magnitudes are in the AB system.
@@ -197,14 +222,28 @@ All magnitudes are in the AB system.
 | `--ra` | required | RA of target |
 | `--dec` | required | Dec of target |
 | `--fits` | required | Science FITS file |
-| `--ref-file` | — | Reference catalogue file |
-| `--ref-cat` | — | Catalogue name (SDSS, 2MASS, PS1) |
-| `--ref-filter` | — | Filter of reference catalogue |
+| `--ref-file` | --- | Reference catalogue file |
+| `--ref-cat` | --- | Catalogue name (SDSS, 2MASS, PS1) |
+| `--ref-filter` | --- | Filter of reference catalogue |
 | `--ap-diam` | `1.0 1.5 2.0 3.0` | Aperture diameters in units of FWHM |
 | `--host-offset` | 5 | Detection radius around target (arcsec) |
 | `--tol` | 1 | Cross-matching tolerance (arcsec) |
-| `--gain` | — | Header keyword for CCD gain (e⁻/ADU) |
+| `--gain` | --- | Header keyword for CCD gain (e-/ADU) |
 | `--auto` | False | Non-interactive (auto magnitude cuts) |
+| `--outdir` | `results/` | Output directory |
+
+### `photometry_hst.py`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--ra` | required | RA of target |
+| `--dec` | required | Dec of target |
+| `--fits` | required | HST drizzled FITS file |
+| `--ap-diam` | `0.25 ... 3.00` | Aperture diameters in arcsec |
+| `--ap-inner-annulus` | 1.25 | Inner background annulus (x aperture diameter) |
+| `--ap-outer-annulus` | 2.5 | Outer background annulus (x aperture diameter) |
+| `--centroid` | False | Recentre on nearest detected source |
+| `--tol` | 2 | Centroid search radius (arcsec) |
 | `--outdir` | `results/` | Output directory |
 
 ---
@@ -217,34 +256,34 @@ All magnitudes are in the AB system.
 | PanSTARRS DR1 | AB | g r i z y | Cross-matched with Gaia astrometric stars |
 | DES DR1 | AB | g r i z Y | Morphological star classifier > 0.85 |
 | SkyMapper DR2 | AB | u v g r i z | class_star > 0.95, flags=0 |
-| 2MASS | Vega | J H K | — |
-| WISE (AllWISE) | Vega | W1 W2 | — |
-| Legacy Survey DR10 | AB | g r i z | PSF-type sources, S/N ≥ 3 |
+| 2MASS | Vega | J H K | --- |
+| WISE (AllWISE) | Vega | W1 W2 | --- |
+| Legacy Survey DR10 | AB | g r i z | PSF-type sources, S/N >= 3 |
 
 ### Colour transformations available
 
-Starting from SDSS photometry (or equivalent via PS1→SDSS conversion):
+Starting from SDSS photometry (or equivalent via PS1->SDSS conversion):
 
-- SDSS → Bessel (B V R I)
-- SDSS → GROND (g r i z)
-- SDSS → DES (g r i z)
-- PS1 → SDSS (u g r i z)
-- PS1 → HSC (g r i z y)
-- PS1 → ZTF (g r)
-- DES → SDSS (g r i z)
+- SDSS -> Bessel (B V R I)
+- SDSS -> GROND (g r i z)
+- SDSS -> DES (g r i z)
+- PS1 -> SDSS (u g r i z)
+- PS1 -> HSC (g r i z y)
+- PS1 -> ZTF (g r)
+- DES -> SDSS (g r i z)
 
 ---
 
 ## Performance
 
-Performance on a 2423 × 2423 pixel SDSS r-band image:
+Performance on a 2423 x 2423 pixel SDSS r-band image:
 
 | Step | Old (sewpy/SExtractor) | New (sep) | Speedup |
 |------|------------------------|-----------|---------|
-| Source extraction (thresh=3σ) | ~30 s | **0.5 s** | ~60× |
-| Catalog cross-match (10k × 10k) | ~2 s | **0.2 s** | ~10× |
-| Bootstrap ZP (N=30 000) | ~30 s | **0.07 s** | ~430× |
-| sky2xy (439 stars) | ~2 s | **0.02 s** | ~100× |
+| Source extraction (thresh=3-sigma) | ~30 s | **0.5 s** | ~60x |
+| Catalog cross-match (10k x 10k) | ~2 s | **0.2 s** | ~10x |
+| Bootstrap ZP (N=30 000) | ~30 s | **0.07 s** | ~430x |
+| sky2xy (439 stars) | ~2 s | **0.02 s** | ~100x |
 
 ---
 
@@ -252,7 +291,7 @@ Performance on a 2423 × 2423 pixel SDSS r-band image:
 
 ### Source detection (`sep`)
 
-`sep` implements SExtractor's core algorithms as a Python/C library —
+`sep` implements SExtractor's core algorithms as a Python/C library ---
 no external binary required.  Positions are 0-indexed internally and
 converted to 1-indexed FITS convention in the output table.
 
@@ -261,10 +300,10 @@ converted to 1-indexed FITS convention in the output table.
 | XWIN_IMAGE | `objects['x'] + 1` |
 | ALPHAWIN_J2000 | `wcs.wcs_pix2world(x, y, 0)` |
 | MAG_AUTO | Kron aperture: `sep.kron_radius` + `sep.sum_ellipse` |
-| MAG_PETRO | ~2× half-light radius: `sep.flux_radius` + `sep.sum_ellipse` |
+| MAG_PETRO | ~2x half-light radius: `sep.flux_radius` + `sep.sum_ellipse` |
 | MAG_APER | Fixed circular aperture: `sep.sum_circle` |
-| FLUX_RADIUS | `sep.flux_radius(frac=0.5)` — 50% enclosed flux radius |
-| FWHM_IMAGE | `2 × FLUX_RADIUS` (Gaussian approximation) |
+| FLUX_RADIUS | `sep.flux_radius(frac=0.5)` --- 50% enclosed flux radius |
+| FWHM_IMAGE | `2 x FLUX_RADIUS` (Gaussian approximation) |
 
 ### Cross-matching
 
@@ -274,25 +313,18 @@ which handles RA wrap-around correctly via a C-compiled KD-tree.
 ### Zeropoint determination
 
 Bootstrap + Monte Carlo resampling with IQR outlier rejection
-(vectorised NumPy — runs at ~430× the speed of the original Python loop).
+(vectorised NumPy --- runs at ~430x the speed of the original Python loop).
+The diagnostic plot shows ZP = m_cat - m_inst (positive) vs. apparent
+magnitude; outlier stars are highlighted in grey.
 
----
+### Logging
 
-## Bugs fixed
-
-- **EllipticalAperture overwrite**: forced photometry was using elliptical
-  apertures instead of circular ones.
-- **`sextractor_postprocess` mask bug**: negative-flux mask was applied after
-  setting values to NaN, causing the error-column update to be silently skipped.
-- **`field_calibration.py` DES print**: displayed "Convert SDSS → GROND" for
-  the DES conversion step.
-- **numpy 2.x `.view()` incompatibility**: replaced with
-  `numpy.lib.recfunctions.structured_to_unstructured()`.
-- **`photutils.make_source_mask` removed in photutils 3.0**: replaced with
-  `sep.Background`.
-- **Python 2 `raw_input()` remnants**: removed.
-- **Bare `except:` clauses**: replaced with `except Exception as exc:`.
-- **`os.system()` shell commands**: replaced with `pathlib` / `subprocess`.
+Each script writes a detailed log file (same stem as the input FITS, `.log`
+extension).  Log level is controlled via `--loglevel` (default: `INFO`).
+Python warnings (e.g. numpy RuntimeWarning) are routed into the same log
+file via `logging.captureWarnings`.  All configuration is handled by
+`utils.setup_logging`, which prevents duplicate log entries on module
+reload and sets `propagate=False`.
 
 ---
 
