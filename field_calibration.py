@@ -116,6 +116,8 @@ def main(args=None):
         result = v.query_region(
             coordinates, radius=args.radius / 60. * u.deg,
             catalog=cat_tools.catalog_prop['SDSS']['CATID'])
+        if len(result) == 0:
+            raise ValueError('Field not covered by SDSS')
         result = result[cat_tools.catalog_prop['SDSS']['CATID_OUT']]
         result = result[cat_tools.catalog_prop['SDSS']['KEYWORDS']]
         result = result[(result['class'] == 6) & (result['mode'] == 1)]
@@ -441,6 +443,8 @@ def main(args=None):
         result = v.query_region(
             coordinates, radius=args.radius / 60. * u.deg,
             catalog=cat_tools.catalog_prop['DES']['CATID'])
+        if len(result) == 0:
+            raise ValueError('Field not covered by DES')
         result = result[cat_tools.catalog_prop['DES']['CATID_OUT']]
         result = result[cat_tools.catalog_prop['DES']['KEYWORDS']]
         result = result[
@@ -601,6 +605,8 @@ def main(args=None):
             coord.SkyCoord(ra_dd, dec_dd, unit=u.deg),
             radius=args.radius / 60. * u.deg,
             catalog=cat_tools.catalog_prop['2MASS']['CATID'])
+        if len(result) == 0:
+            raise ValueError('Field not covered by 2MASS')
         result = result[cat_tools.catalog_prop['2MASS']['CATID_OUT']]
         result = result[cat_tools.catalog_prop['2MASS']['KEYWORDS']]
 

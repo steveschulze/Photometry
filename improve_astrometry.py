@@ -71,7 +71,7 @@ def main(args=None):
     outfile   = fits_path.with_name(fits_path.stem + '_wcs' + fits_path.suffix)
 
     # Write SExtractor config files for astrometry.net
-    extraction.setup_sextractor(outdir=str(fits_path.parent or Path('.')))
+    extraction.setup_sextractor(output_dir=str(fits_path.parent or Path('.')))
 
     log_astro   = open('astro.log',      'w')
     log_sip2pv  = open('astro_sip2pv.log', 'w')

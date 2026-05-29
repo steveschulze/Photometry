@@ -25,6 +25,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+# pysynphot 2.0 uses np.alltrue which was removed in NumPy 2.0 (use np.all).
+# Apply the shim before pysynphot is imported anywhere in this module.
+if not hasattr(np, 'alltrue'):
+    np.alltrue = np.all  # type: ignore[attr-defined]
+
 from astropy import stats, table, time
 from astropy.io import ascii, fits
 from matplotlib import pylab as plt
