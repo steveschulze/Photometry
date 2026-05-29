@@ -129,6 +129,7 @@ def local_sequence(
         return float(out[0][0])
 
     def _save_cat(cat_out: table.Table) -> None:
+        """Write the local-sequence catalog to *output_file* in ASCII format."""
         ascii.write(
             np.column_stack([
                 cat_out['XWIN_IMAGE'], cat_out['YWIN_IMAGE'],
@@ -144,6 +145,12 @@ def local_sequence(
                          zp_off: float,
                          bright_cut: float | None, faint_cut: float | None,
                          fignum: int, show: bool = False) -> None:
+        """Plot instrumental vs. apparent magnitude for the local sequence.
+
+        Highlights selected stars (black) against all detected candidates
+        (grey), with the best-fit constant offset and optional bright/faint
+        magnitude cut lines overlaid.
+        """
         plt.figure(fignum, figsize=(9 * np.sqrt(2.), 9))
         ax = plt.subplot(111)
 
@@ -400,17 +407,14 @@ def zeropoint(
     ax_bg.tick_params(labelcolor='w', top=False, bottom=False,
                       left=False, right=False)
     ax_bg.set_xlabel('Apparent magnitude (mag)')
-    # y-axis: m_inst - m_cat = -ZP, so the scatter around zero would mean
-    # perfect calibration if ZP were subtracted; outliers stand out clearly.
-    ax_bg.set_ylabel(r'$m_\mathrm{inst} - m_\mathrm{cat}$ (mag)')
+    ax_bg.set_ylabel(r'$\mathrm{ZP} = m_\mathrm{cat} - m_\mathrm{inst}$ (mag)')
     ax_bg.yaxis.set_label_coords(-0.08, 0.5)
 
     ncols = 3
     nrows = max(1, int(np.ceil(len(mag_keys) / ncols)))
 
     for i, key in enumerate(mag_keys):
-        # ZP = m_cat - m_inst  (stored in result table, used for calibration)
-        # plot y = m_inst - m_cat = -ZP  (easier to identify outliers visually)
+        # ZP = m_cat - m_inst  (positive; e.g. ~22.3 for a typical ground frame)
         zp_vals = np.asarray(merged['MAG_CAT'] - merged[key], dtype=float)
         err_key = 'MAGERR_' + key.split('_', 1)[1]
         if err_key in merged.colnames:
@@ -420,14 +424,14 @@ def zeropoint(
         else:
             zp_errs = np.asarray(merged['MAGERR_CAT'], dtype=float)
 
-        pos       = zp_vals > 0
-        zp_arr    = np.column_stack([zp_vals[pos], zp_errs[pos]])
-        cat_sel   = np.asarray(merged['MAG_CAT'])[pos]
+        pos     = zp_vals > 0
+        zp_arr  = np.column_stack([zp_vals[pos], zp_errs[pos]])
+        cat_sel = np.asarray(merged['MAG_CAT'])[pos]
 
         print(bcolors.OKGREEN + key + bcolors.ENDC)
         print(np.array([f'{v:.3f}' for v in zp_arr[:, 0]]))
         if logger:
-            logger.info(f'{key}: {[f"{v:.3f}" for v in zp_arr[:, 0]]}')
+            logger.info('%s: %s', key, [f'{v:.3f}' for v in zp_arr[:, 0]])
 
         if len(zp_arr) > 0:
             zp_ana = bootstrap_zp_stats(zp_arr, niter=niter)
@@ -438,29 +442,23 @@ def zeropoint(
         ax = fig.add_subplot(nrows, ncols, i + 1)
 
         if len(zp_arr) > 0:
-            # IQR computed on ZP = m_cat - m_inst; the good/bad mask is
-            # unchanged by sign flip.
             p25, p75 = np.percentile(zp_arr[:, 0], [25, 75])
             iqr      = p75 - p25
             good     = ((zp_arr[:, 0] > p25 - 1.5 * iqr)
                         & (zp_arr[:, 0] < p75 + 1.5 * iqr))
 
-            # Plot y = m_inst - m_cat = -ZP
-            plot_y = -zp_arr[:, 0]
-
-            # Reference lines (negated; asymmetric errors swap sides)
-            ax.axhline(-zp_ana[0],                   lw=4, color=vigit_color_12)
-            ax.axhline(-zp_ana[0] + zp_ana[2], lw=2, color=vigit_color_12, ls='--')
-            ax.axhline(-zp_ana[0] - zp_ana[1], lw=2, color=vigit_color_12, ls='--')
-            ax.axhline(-p25 + 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
-            ax.axhline(-p75 - 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
+            ax.axhline(zp_ana[0],              lw=4, color=vigit_color_12)
+            ax.axhline(zp_ana[0] + zp_ana[1], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(zp_ana[0] - zp_ana[2], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(p75 + 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
+            ax.axhline(p25 - 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
 
             if np.any(~good):
-                ax.errorbar(cat_sel[~good], plot_y[~good], zp_arr[~good, 1],
+                ax.errorbar(cat_sel[~good], zp_arr[~good, 0], zp_arr[~good, 1],
                             marker='o', ms=9, color='0.75',
                             elinewidth=2, capsize=0, lw=0)
             if np.any(good):
-                ax.errorbar(cat_sel[good], plot_y[good], zp_arr[good, 1],
+                ax.errorbar(cat_sel[good], zp_arr[good, 0], zp_arr[good, 1],
                             marker='o', ms=9, color='k',
                             elinewidth=2, capsize=0, lw=0)
             if len(cat_sel) > 1:
@@ -581,9 +579,9 @@ def make_scicat(
                      np.nan, np.nan, 'degree'])
     catalog.add_row(['DEC', float(f'{object_props["DEC"][0]:.6f}'),
                      np.nan, np.nan, 'degree'])
-    catalog.add_row(['X_IMAGE_EXP', float(f'{object_props["X_EXP"][0]:.1f}'),
+    catalog.add_row(['XWIN_IMAGE_EXP', float(f'{object_props["X_EXP"][0]:.1f}'),
                      np.nan, np.nan, 'pixel'])
-    catalog.add_row(['Y_IMAGE_EXP', float(f'{object_props["Y_EXP"][0]:.1f}'),
+    catalog.add_row(['YWIN_IMAGE_EXP', float(f'{object_props["Y_EXP"][0]:.1f}'),
                      np.nan, np.nan, 'pixel'])
 
     pix_scale = fits_tools.pix2arcsec(str(fits_path))

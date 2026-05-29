@@ -66,7 +66,23 @@ def get_parser():
 
 def _write_cat(result, outdir, filename, ra_key, dec_key,
                mag_key, err_key, mask_good):
-    """Write a filtered subset of a catalogue to an ASCII file."""
+    """Write a filtered, four-column catalogue subset to a headerless ASCII file.
+
+    Parameters
+    ----------
+    result : astropy.table.Table
+        Full catalogue table containing at least the four named columns.
+    outdir : pathlib.Path
+        Output directory.
+    filename : str
+        Output filename relative to *outdir*.
+    ra_key, dec_key : str
+        Column names for right ascension and declination.
+    mag_key, err_key : str
+        Column names for magnitude and magnitude uncertainty.
+    mask_good : array-like of bool
+        Boolean mask selecting the rows to include.
+    """
     ascii.write(
         result[[ra_key, dec_key, mag_key, err_key]][mask_good],
         str(outdir / filename), overwrite=True, format='no_header')

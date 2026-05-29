@@ -25,7 +25,6 @@ __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 import   argparse
 import   copy
 import   glob
-import   logging
 import   shutil
 import   sys
 from     pathlib import Path
@@ -41,7 +40,7 @@ import   cat_tools
 import   extraction
 import   fits_tools
 from     plotsettings import *
-from     utils import bcolors
+from     utils import bcolors, setup_logging
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +119,8 @@ def main(argv: list[str] | None = None) -> None:
     args.mag_stdfaint  = float(args.mag_stdfaint)
     args.mag_stdbright = float(args.mag_stdbright)
 
-    # Logger
     log_path = Path(args.fits).with_suffix('.log')
-    logger   = logging.getLogger('photometry')
-    logger.setLevel(args.loglevel)
-    fh = logging.FileHandler(log_path, mode='w')
-    fh.setLevel(args.loglevel)
-    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logger.addHandler(fh)
+    logger   = setup_logging('photometry', log_path, level=args.loglevel)
 
     # -----------------------------------------------------------------------
     # Step 1: Administration
@@ -260,6 +253,12 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(f'{len(ref_stars)} stars for local sequence')
 
     def _prune_stars(stars: table.Table) -> table.Table:
+        """Apply quality cuts to the comparison-star catalog.
+
+        Removes flagged sources (unless ``--noflags``), clips outliers in
+        FWHM using a 1.5 × IQR fence, and truncates to *args.maxstars*
+        by selecting the best-measured (lowest MAGERR_AUTO) stars.
+        """
         if not args.noflags:
             stars = stars[stars['FLAGS'] == 0]
         fwhm = np.asarray(stars['FWHM_IMAGE'])
@@ -275,6 +274,20 @@ def main(argv: list[str] | None = None) -> None:
         return stars
 
     def _crossmatch_to_refcat(stars: table.Table) -> table.Table:
+        """Cross-match the sep catalog against the reference photometry catalog.
+
+        Converts both tables to plain float arrays, calls
+        ``cat_tools.crossmatch_catalogs``, and assembles the result into a
+        labeled astropy Table with renamed magnitude columns (MAG_INS /
+        MAG_CAT) ready for zeropoint determination.
+
+        Returns
+        -------
+        astropy.table.Table
+            Merged table with one row per matched star.  Includes columns
+            from both catalogs plus ``DIST`` (arcsec) and ``MAG_ZP_TEMP``
+            (= MAG_CAT − MAG_INS) for quick sanity checking.
+        """
         keys_s = [k for k in (
             'ALPHAWIN_J2000', 'DELTAWIN_J2000', 'XWIN_IMAGE', 'YWIN_IMAGE',
             'MAG_AUTO', 'MAGERR_AUTO', 'MAG_PETRO', 'MAGERR_PETRO',

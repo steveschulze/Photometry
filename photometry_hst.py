@@ -25,7 +25,6 @@ __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
 import   argparse
 import   glob
-import   logging
 import   sys
 from     pathlib import Path
 
@@ -37,7 +36,7 @@ from     matplotlib import pylab as plt
 import   extraction
 import   fits_tools
 import   hst_routines
-from     utils import bcolors
+from     utils import bcolors, setup_logging
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +96,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Logger
     log_path = Path(args.fits).with_suffix('.log')
-    logger   = logging.getLogger('photometry_hst')
-    logger.setLevel(args.loglevel)
-    fh = logging.FileHandler(log_path, mode='w')
-    fh.setLevel(args.loglevel)
-    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logger.addHandler(fh)
+    logger   = setup_logging('photometry_hst', log_path, level=args.loglevel)
 
     # -----------------------------------------------------------------------
     # Step 1: Administration
