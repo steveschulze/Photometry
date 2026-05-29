@@ -351,7 +351,6 @@ def main(args=None):
     print(bcolors.OKBLUE + '\nDESI Legacy Imaging Surveys DR10' + bcolors.ENDC)
 
     try:
-        import routines_noir
         result = cat_tools.query_noir_datalab_stars(
             coordinates.ra.value, coordinates.dec.value, args.radius)
 
@@ -427,8 +426,8 @@ def main(args=None):
 
     except ImportError:
         print(bcolors.WARNING
-              + 'routines_noir not available (dl library not installed). '
-              'Skipping Legacy Survey query.'
+              + 'noirlab-datalab not installed. '
+              'Install with: pip install noirlab-datalab'
               + bcolors.ENDC)
     except Exception as exc:
         print(bcolors.FAIL + f'NOIR DataLab query failed: {exc}' + bcolors.ENDC)
