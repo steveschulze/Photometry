@@ -399,14 +399,18 @@ def zeropoint(
         spine.set_visible(False)
     ax_bg.tick_params(labelcolor='w', top=False, bottom=False,
                       left=False, right=False)
-    ax_bg.set_xlabel('Apparent magnitude')
-    ax_bg.set_ylabel('Zeropoint')
+    ax_bg.set_xlabel('Apparent magnitude (mag)')
+    # y-axis: m_inst - m_cat = -ZP, so the scatter around zero would mean
+    # perfect calibration if ZP were subtracted; outliers stand out clearly.
+    ax_bg.set_ylabel(r'$m_\mathrm{inst} - m_\mathrm{cat}$ (mag)')
     ax_bg.yaxis.set_label_coords(-0.08, 0.5)
 
     ncols = 3
     nrows = max(1, int(np.ceil(len(mag_keys) / ncols)))
 
     for i, key in enumerate(mag_keys):
+        # ZP = m_cat - m_inst  (stored in result table, used for calibration)
+        # plot y = m_inst - m_cat = -ZP  (easier to identify outliers visually)
         zp_vals = np.asarray(merged['MAG_CAT'] - merged[key], dtype=float)
         err_key = 'MAGERR_' + key.split('_', 1)[1]
         if err_key in merged.colnames:
@@ -434,23 +438,29 @@ def zeropoint(
         ax = fig.add_subplot(nrows, ncols, i + 1)
 
         if len(zp_arr) > 0:
+            # IQR computed on ZP = m_cat - m_inst; the good/bad mask is
+            # unchanged by sign flip.
             p25, p75 = np.percentile(zp_arr[:, 0], [25, 75])
             iqr      = p75 - p25
             good     = ((zp_arr[:, 0] > p25 - 1.5 * iqr)
                         & (zp_arr[:, 0] < p75 + 1.5 * iqr))
 
-            ax.axhline(zp_ana[0], lw=4, color=vigit_color_12)
-            ax.axhline(zp_ana[0] + zp_ana[1], lw=2, color=vigit_color_12, ls='--')
-            ax.axhline(zp_ana[0] - zp_ana[2], lw=2, color=vigit_color_12, ls='--')
-            ax.axhline(p75 + 1.5 * iqr, lw=2, color=vigit_color_12, ls=':')
-            ax.axhline(p25 - 1.5 * iqr, lw=2, color=vigit_color_12, ls=':')
+            # Plot y = m_inst - m_cat = -ZP
+            plot_y = -zp_arr[:, 0]
+
+            # Reference lines (negated; asymmetric errors swap sides)
+            ax.axhline(-zp_ana[0],                   lw=4, color=vigit_color_12)
+            ax.axhline(-zp_ana[0] + zp_ana[2], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(-zp_ana[0] - zp_ana[1], lw=2, color=vigit_color_12, ls='--')
+            ax.axhline(-p25 + 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
+            ax.axhline(-p75 - 1.5 * iqr,       lw=2, color=vigit_color_12, ls=':')
 
             if np.any(~good):
-                ax.errorbar(cat_sel[~good], zp_arr[~good, 0], zp_arr[~good, 1],
+                ax.errorbar(cat_sel[~good], plot_y[~good], zp_arr[~good, 1],
                             marker='o', ms=9, color='0.75',
                             elinewidth=2, capsize=0, lw=0)
             if np.any(good):
-                ax.errorbar(cat_sel[good], zp_arr[good, 0], zp_arr[good, 1],
+                ax.errorbar(cat_sel[good], plot_y[good], zp_arr[good, 1],
                             marker='o', ms=9, color='k',
                             elinewidth=2, capsize=0, lw=0)
             if len(cat_sel) > 1:

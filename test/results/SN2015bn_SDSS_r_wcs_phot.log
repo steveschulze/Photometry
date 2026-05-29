@@ -1,3 +1,12 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: PROPERTY, datatype: string}
+# - {name: VALUE, datatype: float32}
+# - {name: ERROR+, datatype: float32}
+# - {name: ERROR-, datatype: float32}
+# - {name: COMMENT, datatype: string}
+# schema: astropy-2.0
 PROPERTY VALUE ERROR+ ERROR- COMMENT
 FILENAME nan nan nan SN2015bn_SDSS_r_wcs.fits
 DATE-OBS nan nan nan ...
@@ -5,20 +14,20 @@ MJD nan nan nan ...
 EXPTIME nan nan nan ...
 NCOMBINE nan nan nan 1
 PHOTCAL nan nan nan results/SDSS_SDSS_r.cat
-RA 173.42312622070312 nan nan degree
-DEC 0.7259719967842102 nan nan degree
-X_IMAGE_EXP 1211.5999755859375 nan nan pixel
-Y_IMAGE_EXP 1211.5999755859375 nan nan pixel
+RA 173.42313 nan nan degree
+DEC 0.725972 nan nan degree
+X_IMAGE_EXP 1211.6 nan nan pixel
+Y_IMAGE_EXP 1211.6 nan nan pixel
 XWIN_IMAGE_OBS 1212.0 nan nan pixel
 YWIN_IMAGE_OBS 1211.0 nan nan pixel
-ALPHAWIN_J2000_OBS 173.42306518554688 nan nan degree
-DELTAWIN_J2000_OBS 0.7258999943733215 nan nan degree
-"DISTANCE (px)" 0.8100000023841858 nan nan pixel
-"DISTANCE (arcsec)" 0.3199999928474426 nan nan arcsec
+ALPHAWIN_J2000_OBS 173.42307 nan nan degree
+DELTAWIN_J2000_OBS 0.7259 nan nan degree
+"DISTANCE (px)" 0.81 nan nan pixel
+"DISTANCE (arcsec)" 0.32 nan nan arcsec
 "FLUX_RADIUS (arcsec)" 0.0 nan nan arcsec
 MAG_AUTO nan nan nan mag
 MAG_PETRO nan nan nan mag
-MAG_APER 22.493999481201172 nan 0.800000011920929 mag
-MAG_APER_1 22.299999237060547 3.2019999027252197 0.7239999771118164 mag
-MAG_APER_2 22.229000091552734 2.502000093460083 0.6970000267028809 mag
-MAG_APER_3 21.75 1.3550000190734863 0.5849999785423279 mag
+MAG_APER 22.495 nan 0.801 mag
+MAG_APER_1 22.302 3.202 0.724 mag
+MAG_APER_2 22.227 2.502 0.697 mag
+MAG_APER_3 21.75 1.355 0.585 mag

@@ -369,8 +369,8 @@ def main(argv: list[str] | None = None) -> None:
     sci_tbl.pprint(max_lines=-1)
 
     stem = Path(args.fits).stem
-    ascii.write(zp_tbl,  outdir / (stem + '_zp.log'),   overwrite=True)
-    ascii.write(sci_tbl, outdir / (stem + '_phot.log'), overwrite=True)
+    ascii.write(zp_tbl,  outdir / (stem + '_zp.log'),   format='ecsv', overwrite=True)
+    ascii.write(sci_tbl, outdir / (stem + '_phot.log'), format='ecsv', overwrite=True)
 
     # -----------------------------------------------------------------------
     # Step 8: Cleanup

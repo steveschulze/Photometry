@@ -576,9 +576,15 @@ def main(argv: list[str] | None = None) -> None:
     print(bcolors.HEADER + bcolors.BOLD + '\nStep 7: Save to file\n' + bcolors.ENDC)
 
     stem = Path(args.fits).stem
-    ascii.write(summary_science,   outdir / (stem + '_phot.log'),         overwrite=True)
-    ascii.write(summary_zeropoint, outdir / (stem + '_zp.log'),           overwrite=True)
-    ascii.write(phot_all,          outdir / (stem + '_all_abs_cal.phot'), overwrite=True)
+    # ECSV preserves column names, units, and dtypes in a human-readable header.
+    ascii.write(summary_science,   outdir / (stem + '_phot.log'),
+                format='ecsv', overwrite=True)
+    ascii.write(summary_zeropoint, outdir / (stem + '_zp.log'),
+                format='ecsv', overwrite=True)
+    # FITS binary table for the large per-source catalogue: machine-readable
+    # by TopCat, DS9, and any astropy Table.read() call.
+    phot_all.write(str(outdir / (stem + '_all_abs_cal.fits')),
+                   format='fits', overwrite=True)
 
     # -----------------------------------------------------------------------
     # Step 8: Cleanup
@@ -594,6 +600,7 @@ def main(argv: list[str] | None = None) -> None:
             *glob.glob(str(outdir / (stem + '_ref_star.*'))),
             str(outdir / (stem + '_xy.cat')),
             str(outdir / (stem + '_all.phot')),
+            str(outdir / (stem + '_all.fits')),
             str(Path('check_' + Path(args.fits).name)),
         ]:
             p = Path(pattern)
