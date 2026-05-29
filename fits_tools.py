@@ -5,6 +5,8 @@ Provides coordinate conversion (HMS ↔ decimal degrees), batch sky-to-pixel
 transformations, and pixel-scale extraction from WCS headers.
 """
 
+from __future__ import annotations
+
 __version__ = "2026-05-29"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 

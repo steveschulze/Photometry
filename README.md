@@ -1,9 +1,6 @@
-# ENGRAVE Photometry Pipeline
+# Aperture photometry Pipeline
 
-Aperture photometry pipeline for ground-based and HST imaging of transients
-(supernovae, gamma-ray bursts, etc.).  Retrieves photometric reference
-catalogues from Vizier, builds a local comparison-star sequence, determines
-a robust photometric zeropoint, and measures calibrated aperture magnitudes.
+Aperture photometry pipeline for ground-based and HST imaging of transients (supernovae, gamma-ray bursts, etc.).  Retrieves photometric reference catalogues from Vizier, builds a local comparison-star sequence, determines a photometric zeropoint, and measures calibrated aperture magnitudes.
 
 Version 2026-05-29
 
@@ -43,12 +40,12 @@ pip install numpy astropy scipy matplotlib sep photutils astroquery pysynphot
 pip install noirlab-datalab
 # For astrometry improvement (requires astrometry.net binary):
 # macOS: brew install astrometry-net
+conda install conda-forge::astrometry
 ```
 
 **Key versions tested:** numpy 2.4.4, astropy 7.2.0, sep 1.4.1, photutils 3.0.0, pysynphot 2.0.0.
 
-The pipeline no longer requires a SExtractor binary — source detection and
-photometry use the `sep` Python library (C-level SExtractor algorithms).
+The pipeline no longer requires a SExtractor binary — source detection and photometry use the `sep` Python library (C-level SExtractor algorithms).
 
 ---
 
@@ -58,8 +55,7 @@ Run all commands from the directory containing the FITS files.
 
 ### Negative declinations
 
-When the declination is negative, use the `=` form to prevent the shell
-interpreting the minus sign as a flag:
+When the declination is negative, use the `=` form to prevent the shell interpreting the minus sign as a flag:
 
 ```bash
 # Correct — works in bash, zsh, and sh
@@ -72,8 +68,7 @@ interpreting the minus sign as a flag:
 
 ### 1. Retrieve reference catalogues
 
-Downloads SDSS, PanSTARRS, DES, 2MASS, WISE catalogues and derives colour-
-transformed versions (Bessel, GROND, ZTF, HSC, DES systems).
+Downloads SDSS, PanSTARRS, DES, 2MASS, WISE catalogues and derives colour-transformed versions (Bessel, GROND, ZTF, HSC, DES systems).
 
 ```bash
 python field_calibration.py --ra 11:33:41.550 --dec 00:43:33.50
@@ -84,8 +79,7 @@ Catalogue naming: `{SOURCE}_{SYSTEM}_{FILTER}.cat`, e.g. `PS1_SDSS_r.cat`.
 
 ### 2. Improve astrometry (optional)
 
-Refine the WCS solution using astrometry.net and convert SIP distortion
-terms to PV format:
+Refine the WCS solution using astrometry.net and convert SIP distortion terms to PV format:
 
 ```bash
 python improve_astrometry.py \
@@ -123,8 +117,7 @@ python photometry_hst.py \
     --fits SN2015bn_F625W_drc.fits
 ```
 
-Requires pysynphot and a valid `$PYSYN_CDBS` environment variable pointing
-to the Calibration Data Base System (CDBS) directory.
+Requires pysynphot and a valid `$PYSYN_CDBS` environment variable pointing to the Calibration Data Base System (CDBS) directory.
 
 ---
 
@@ -166,11 +159,7 @@ photometry.py
 | `*_std.pdf` | PDF | Instrumental vs. apparent magnitude scatter plot |
 | `*_poststamp.pdf` | PDF | Two-panel cutout: expected vs. observed position |
 
-ECSV (Enhanced Character Separated Values) is plain text with an embedded
-YAML header that preserves column dtypes, units, and descriptions.  Files can
-be opened in any text editor and read back with `astropy.io.ascii.read()`.
-The FITS catalog is directly readable by TopCat, DS9, and
-`astropy.table.Table.read()`.
+ECSV (Enhanced Character Separated Values) is plain text with an embedded YAML header that preserves column dtypes, units, and descriptions.  Files can be opened in any text editor and read back with `astropy.io.ascii.read()`. The FITS catalog is directly readable by TopCat, DS9, and `astropy.table.Table.read()`.
 
 ### Photometry log format
 
@@ -278,7 +267,7 @@ Starting from SDSS photometry (or equivalent via PS1->SDSS conversion):
 
 Performance on a 2423 x 2423 pixel SDSS r-band image:
 
-| Step | Old (sewpy/SExtractor) | New (sep) | Speedup |
+| Step | Previous version (with sewpy/SExtractor) | New version (with sep) | Speedup |
 |------|------------------------|-----------|---------|
 | Source extraction (thresh=3-sigma) | ~30 s | **0.5 s** | ~60x |
 | Catalog cross-match (10k x 10k) | ~2 s | **0.2 s** | ~10x |
@@ -291,9 +280,7 @@ Performance on a 2423 x 2423 pixel SDSS r-band image:
 
 ### Source detection (`sep`)
 
-`sep` implements SExtractor's core algorithms as a Python/C library ---
-no external binary required.  Positions are 0-indexed internally and
-converted to 1-indexed FITS convention in the output table.
+`sep` implements SExtractor's core algorithms as a Python/C library --- no external binary required.  Positions are 0-indexed internally and converted to 1-indexed FITS convention in the output table.
 
 | SExtractor | sep equivalent |
 |------------|---------------|
@@ -307,24 +294,16 @@ converted to 1-indexed FITS convention in the output table.
 
 ### Cross-matching
 
-All sky coordinate matching uses `astropy.coordinates.SkyCoord.match_to_catalog_sky()`
-which handles RA wrap-around correctly via a C-compiled KD-tree.
+All sky coordinate matching uses `astropy.coordinates.SkyCoord.match_to_catalog_sky()` which handles RA wrap-around correctly via a C-compiled KD-tree.
 
 ### Zeropoint determination
 
-Bootstrap + Monte Carlo resampling with IQR outlier rejection
-(vectorised NumPy --- runs at ~430x the speed of the original Python loop).
-The diagnostic plot shows ZP = m_cat - m_inst (positive) vs. apparent
+Bootstrap + Monte Carlo resampling with IQR outlier rejection (vectorised NumPy --- runs at ~430x the speed of the original Python loop). The diagnostic plot shows ZP = m_cat - m_inst (positive) vs. apparent
 magnitude; outlier stars are highlighted in grey.
 
 ### Logging
 
-Each script writes a detailed log file (same stem as the input FITS, `.log`
-extension).  Log level is controlled via `--loglevel` (default: `INFO`).
-Python warnings (e.g. numpy RuntimeWarning) are routed into the same log
-file via `logging.captureWarnings`.  All configuration is handled by
-`utils.setup_logging`, which prevents duplicate log entries on module
-reload and sets `propagate=False`.
+Each script writes a detailed log file (same stem as the input FITS, `.log` extension).  Log level is controlled via `--loglevel` (default: `INFO`). Python warnings (e.g. numpy RuntimeWarning) are routed into the same log file via `logging.captureWarnings`.  All configuration is handled by `utils.setup_logging`, which prevents duplicate log entries on module reload and sets `propagate=False`.
 
 ---
 
@@ -336,7 +315,41 @@ If you use this pipeline, please cite the following software:
 - **astropy**: [Astropy Collaboration (2022)](https://doi.org/10.3847/1538-4357/ac7c74)
 - **photutils**: [Bradley et al. (2022)](https://doi.org/10.5281/zenodo.6825092)
 
+and 
+
+```
+@ARTICLE{Schulze2018a,
+   author = {{Schulze}, S. and {Kr{\"u}hler}, T. and {Leloudas}, G. and {Gorosabel}, J. and 
+	{Mehner}, A. and {Buchner}, J. and {Kim}, S. and {Ibar}, E. and 
+	{Amor{\'{\i}}n}, R. and {Herrero-Illana}, R. and {Anderson}, J.~P. and 
+	{Bauer}, F.~E. and {Christensen}, L. and {de Pasquale}, M. and 
+	{de Ugarte Postigo}, A. and {Gallazzi}, A. and {Hjorth}, J. and 
+	{Morrell}, N. and {Malesani}, D. and {Sparre}, M. and {Stalder}, B. and 
+	{Stark}, A.~A. and {Th{\"o}ne}, C.~C. and {Wheeler}, J.~C.},
+    title = "{Cosmic evolution and metal aversion in superluminous supernova host galaxies}",
+  journal = {\mnras},
+archivePrefix = "arXiv",
+   eprint = {1612.05978},
+ keywords = {galaxies: evolution, galaxies: high-redshift, galaxies: luminosity function, mass function, galaxies: starburst, galaxies: star formation},
+     year = 2018,
+    month = jan,
+   volume = 473,
+    pages = {1258},
+      doi = {10.1093/mnras/stx2352},
+   adsurl = {http://adsabs.harvard.edu/abs/2018MNRAS.473.1258S},
+  adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+  }
+```
+
 ---
+
+## License
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Author
 

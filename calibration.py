@@ -13,6 +13,8 @@ make_scicat(...)                 Assemble the science photometry output table
 make_poststamp(...)              Two-panel diagnostic cutout image
 """
 
+from __future__ import annotations
+
 __version__ = "2026-05-29"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 

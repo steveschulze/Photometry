@@ -6,6 +6,8 @@ zeropoint statistics function (formerly stat_tools.statNclip), and the
 standard logging setup used by all pipeline entry-point scripts.
 """
 
+from __future__ import annotations
+
 __version__ = "2026-05-29"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 

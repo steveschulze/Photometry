@@ -16,6 +16,8 @@ postprocess_catalog(catalog, ...) Convert negative fluxes; recompute errors
 setup_sextractor(output_dir)      Write SExtractor config files for astrometry.net
 """
 
+from __future__ import annotations
+
 __version__ = "2026-05-29"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
