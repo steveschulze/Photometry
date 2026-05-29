@@ -37,6 +37,9 @@ def aperture_photometry(IMAGE, POSITIONS, RADII, INNERANNULUS, OUTERANNULUS, RMS
     """
 
     src_apers                                            = [photutils.CircularAperture(POSITIONS, r=radius) for radius in RADII]
+    src_apers                                            = [photutils.EllipticalAperture(POSITIONS, radius, radius/5, 76.) for radius in RADII]
+
+
     src_phot_table                                        = photutils.aperture_photometry(IMAGE, src_apers)
 
     # background
@@ -442,9 +445,10 @@ def hst_scale(INSTRUMENT, MODE):
 
     elif INSTRUMENT == 'WFC3':
         # http://www.stsci.edu/hst/wfc3/documents/handbooks/currentDHB/wfc3_dhb.pdf
+        print(MODE)
         if 'UVIS' in MODE:
             return 0.040
-        if MODE     == 'IR':
+        if 'IR' in MODE:
             return 0.13
         else:
             print(bcolors.FAIL + 'MODE {mode} not recognised for {instrument}'.format(mode=MODE, instrument=INSTRUMENT) + bcolors.ENDC)
@@ -1025,31 +1029,20 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
 
     # Observing time, exposure time (individual and number of exposures)
 
-    for key in ['DATE-OBS', 'MJD', 'EXPTIME', 'NCOMBINE', 'OBSMJD']:
+    for key in ['DATE-OBS', 'MJD', 'EXPTIME', 'NCOMBINE']:
 
-        try:
+        if key in list(hdu_header.keys()):
+            catalog.add_row([key, np.nan, np.nan, np.nan, str(hdu_header[key])])
 
-            if key in list(hdu_header.keys()) and 'OBSMJD' in list(hdu_header.keys()):
-
-                    if key         == 'OBSMJD':
-                        catalog.add_row(['MJD', np.nan, np.nan, np.nan, hdu_header[key]])
-                        catalog.add_row(['DATE-OBS', np.nan, np.nan, np.nan, time.Time(hdu_header[key], format='mjd').isot])
-
-                    elif key not in ['DATE-OBS', 'MJD']:
-                        catalog.add_row([key, np.nan, np.nan, np.nan, hdu_header[key]])
-
-            elif key in list(hdu_header.keys()) and 'OBSMJD' not in list(hdu_header.keys()):
-                catalog.add_row([key, np.nan, np.nan, np.nan, hdu_header[key]])
-
+        else:
+            if key             == 'NCOMBINE':
+                catalog.add_row([key, np.nan, np.nan, np.nan, str(1)])
             else:
-                if key             == 'NCOMBINE':
-                    catalog.add_row([key, np.nan, np.nan, np.nan, 1])
-                else:
-                    if key         != 'OBSMJD':
-                        catalog.add_row([key, np.nan, np.nan, np.nan, '...'])
+                catalog.add_row([key, np.nan, np.nan, np.nan, '...'])
 
-        except:
-            catalog.add_row([key, np.nan, np.nan, np.nan, '...'])
+    if 'OBSMJD' in list(hdu_header.keys()):
+        catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS'] = time.Time(hdu_header['OBSMJD'], format='mjd').isot
+        catalog['COMMENT'][catalog['PROPERTY'] == 'MJD'] = hdu_header['OBSMJD']
 
     if not 'T' in catalog['COMMENT'][catalog['PROPERTY'] == 'DATE-OBS']:
         try:
@@ -1079,8 +1072,8 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
     catalog.add_row(['RA',             '{:.6f}'.format(OBJECT_PROPERTIES['RA'][0]),    np.nan, np.nan, 'degree'])
     catalog.add_row(['DEC',         '{:.6f}'.format(OBJECT_PROPERTIES['DEC'][0]),     np.nan, np.nan, 'degree'])
 
-    catalog.add_row(['X_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['X_EXP'][0]), np.nan, np.nan, 'px'])
-    catalog.add_row(['Y_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['Y_EXP'][0]), np.nan, np.nan, 'px'])
+    catalog.add_row(['X_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['X_EXP'][0]), np.nan, np.nan, 'degree'])
+    catalog.add_row(['Y_IMAGE_EXP', '{:.1f}'.format(OBJECT_PROPERTIES['Y_EXP'][0]), np.nan, np.nan, 'degree'])
 
     # Compute for all objects in SEXTRACTOR PHOTOMETRY the distance to the expected source position (unit: arcsec and pix)
     # Identify the object with the smallest offset as the science object
@@ -1100,10 +1093,15 @@ def make_scicat (FITS, OBJECT_PROPERTIES, SEXTRACTOR_PHOTOMETRY, PHOTUTILS_PHOTO
         SEXTRACTOR_PHOTOMETRY.sort('DISTANCE (px)')
 
         for key in ['XWIN_IMAGE', 'YWIN_IMAGE']:
-            catalog.add_row([key+'_OBS', '{:.1f}'.format(SEXTRACTOR_PHOTOMETRY[key][0]), np.nan, np.nan, 'px'])
+            catalog.add_row([key+'_OBS', '{:.01f}'.format(SEXTRACTOR_PHOTOMETRY[key][0]), np.nan, np.nan, 'px'])
+
+        for key in ['ALPHAWIN_J2000', 'DELTAWIN_J2000']:
+            catalog.add_row([key+'_OBS', '{:.05f}'.format(SEXTRACTOR_PHOTOMETRY[key][0]), np.nan, np.nan, 'px'])
 
         catalog.add_row(['DISTANCE (px)',       '{:.2f}'.format(float(SEXTRACTOR_PHOTOMETRY['DISTANCE (px)'][0])),     np.nan, np.nan, 'px'])
         catalog.add_row(['DISTANCE (arcsec)', '{:.2f}'.format(float(SEXTRACTOR_PHOTOMETRY['DISTANCE (arcsec)'][0])), np.nan, np.nan, 'arcsec'])
+
+        catalog.add_row(['FLUX_RADIUS (arcsec)', '{:.02f}'.format(float(SEXTRACTOR_PHOTOMETRY['FLUX_RADIUS'][0])*fits_tools.pix2arcsec(FITS)), np.nan, np.nan, 'arcsec'])
 
         # Add magnitudes
 
@@ -1306,6 +1304,7 @@ FLAG_TYPE        OR             # flag pixel combination: OR, AND, MIN, MAX
                                 # or MOST
 
 #------------------------------ Photometry -----------------------------------
+PHOT_FLUXFRAC    0.5  # Fraction of light for FLUX_RADIUS
 
 PHOT_APERTURES   5              # MAG_APER aperture diameter(s) in pixels
 PHOT_AUTOPARAMS  2.5, 3.5       # MAG_AUTO parameters: <Kron_fact>,<min_radius>
@@ -1422,7 +1421,7 @@ def sextractor_photometry(
                                         "DETECT_THRESH":     DETECT_THRESH,
                                         "GAIN_KEY":         get_gain(FITS, GAIN, LOGGER),
                                         "PHOT_APERTURES":     "",
-                                        "PHOT_FLUXFRAC":    0.5,
+                                        "PHOT_FLUXFRAC":    1.0,
                                         "PHOT_AUTOPARAMS":     "2.5, 3.5",
                                         "PHOT_PETROPARAMS": "2.0, 3.5",
                                         "SATURATION":        100000000,
@@ -1593,7 +1592,7 @@ def zeropoint(TABLE_REF, TABLE_NEW, FITS='', LOGGER=None, NITER=30000, PATH='', 
 
         # Add to plot
 
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         zp_plot                = fig.add_subplot(int(len(keys_mag)/3) if len(keys_mag)%3 == 0 else int(len(keys_mag)/3) + 1, 3, i+1)
 
         if len(temp_zp)     > 0:

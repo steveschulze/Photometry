@@ -250,6 +250,26 @@ def main(args):
             filename    = args.outdir + 'PS1_SDSS_' + f + '.cat'
             ascii.write(result[['RAJ2000', 'DEJ2000', f+'_SDSS', f+'_SDSS_ERR']][mask_good], filename, overwrite=True, format='no_header')
 
+        # Convert to HSC system
+
+        print(bcolors.WARNING + 'Convert PS1 -> HSC' + bcolors.ENDC)
+
+        result             = cat_tools.PS1_to_HSC(result_ps1)
+
+        # Formatting
+
+        for key in [x for x in result.keys() if 'HSC' in x]:
+            result[key].format= '.4f'
+
+        # Write HSC catalogues
+
+        for f in ['g', 'r', 'i', 'z', 'y']:
+
+            mask_good    = np.where((result[f + '_HSC_ERR'] > 0.) & (result[f + '_HSC_ERR'] < 0.3))[0]
+
+            filename    = args.outdir + 'PS1_HSC_' + f + '.cat'
+            ascii.write(result[['RAJ2000', 'DEJ2000', f+'_HSC', f+'_HSC_ERR']][mask_good], filename, overwrite=True, format='no_header')
+
         # Convert to Bessel system
 
         print(bcolors.WARNING + 'Convert PS1 -> SDSS -> BESSEL' + bcolors.ENDC)
@@ -340,7 +360,7 @@ def main(args):
 
         if len(result) > 0:
 
-            for f in ['g', 'r', 'z']:
+            for f in ['g', 'r', 'i', 'z']:
 
                 temp_result = copy.deepcopy(result)
                 temp_result = temp_result['ra', 'dec', 'mag_' + f, 'snr_' + f, 'allmask_' + f]
@@ -403,7 +423,7 @@ def main(args):
 
             result_sdss        = copy.deepcopy(result)
 
-            for f in ['g', 'r']:
+            for f in ['g', 'r', 'i']:
 
                 mask_good    = np.where((result[f + '_SDSS_ERR'] > cat_tools.catalog_prop['SDSS']['SIGMA_HIGH']) & (result[f + '_SDSS_ERR'] < cat_tools.catalog_prop['SDSS']['SIGMA_LOW']))[0]
 
@@ -423,7 +443,7 @@ def main(args):
 
             # Write Bessel catalogues
 
-            for f in ['B', 'V', 'R']:
+            for f in ['B', 'V', 'R', 'I']:
 
                 mask_good    = np.where((result[f + '_BESSEL_ERR'] > 0.) & (result[f + '_BESSEL_ERR'] < 0.3))[0]
 
@@ -639,7 +659,6 @@ def main(args):
 
     try:
         v                    = Vizier(columns = ['all'], catalog = cat_tools.catalog_prop['WISE']['CATID'], row_limit = -1)
-
         data_wise            = v.query_region(coordinates, radius = 50*u.arcmin)[cat_tools.catalog_prop['WISE']['CATID_OUT']]
         data_wise            = data_wise[cat_tools.catalog_prop['WISE']['KEYWORDS']]
 
@@ -649,9 +668,9 @@ def main(args):
 
         data_wise             = data_wise[mask]
 
-        ascii.write(data_wise[['RAJ2000', 'DEJ2000', 'W1mag', 'e_W1mag']], 'photcat/unWISE_W1.cat', format='no_header', overwrite=True)
-        ascii.write(data_wise[['RAJ2000', 'DEJ2000', 'W2mag', 'e_W2mag']], 'photcat/unWISE_W2.cat', format='no_header', overwrite=True)
-        ascii.write(data_wise, 'photcat/unWISE.cat', overwrite=True)
+        ascii.write(data_wise[['RAJ2000', 'DEJ2000', 'W1mag', 'e_W1mag']], args.outdir +  'unWISE_W1.cat', format='no_header', overwrite=True)
+        ascii.write(data_wise[['RAJ2000', 'DEJ2000', 'W2mag', 'e_W2mag']], args.outdir +  'unWISE_W2.cat', format='no_header', overwrite=True)
+        ascii.write(data_wise, args.outdir + 'unWISE.cat', overwrite=True)
 
     except:
         print(bcolors.FAIL + 'VizieR query failed.' + bcolors.ENDC)

@@ -96,7 +96,7 @@ def sky2xy_helper(FITS, RA, DEC):
                         RA, DEC), unit=(u.hour, u.deg),
                                  frame='icrs')
         else:
-            c = coord.SkyCoord('{0} {1}'.format(
+            c = coord.SkyCoord('{0} {1:.06f}'.format(
                         RA, DEC), unit=(u.deg, u.deg),
                                  frame='icrs')
 
@@ -126,7 +126,7 @@ def sky2xy(FITS, RA=None, DEC=None, CAT=None):
 
         xy = []
         for ii in range(len(cat)):
-            _sky2xy = sky2xy_helper(FITS, cat[ii][cat_keys[0]], cat[ii][cat_keys[1]])
+            _sky2xy = sky2xy_helper(FITS, float(cat[ii][cat_keys[0]]), float(cat[ii][cat_keys[1]]))
 
             if _sky2xy != False:
                 xy.append(_sky2xy)

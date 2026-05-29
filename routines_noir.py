@@ -13,15 +13,15 @@ def query_noir_datalab_stars(RA, DEC, RADIUS = 16):
         RADIUS: Radius (unit: arcmin)
 
     Returns:
-        Table:  Photometry catalogue (columsn: ra, dec, mag_[g,r,z], snr_[g,r,z], allmask_[g,r,z])
+        Table:  Photometry catalogue (columsn: ra, dec, mag_[g,r,i,z], snr_[g,r,i,z], allmask_[g,r,i,z])
     """
 
     query = '''
     SELECT
 
-    ra, dec, mag_g, mag_r, mag_z, snr_g, snr_r, snr_z, allmask_g, allmask_r, allmask_z
+    ra, dec, mag_g, mag_r, mag_i, mag_z, snr_g, snr_r, snr_i, snr_z, allmask_g, allmask_r, allmask_i, allmask_z
 
-    FROM ls_dr9.tractor AS tractor
+    FROM ls_dr10.tractor AS tractor
 
     WHERE 't' = q3c_join({ra}, {dec}, tractor.ra, tractor.dec, {radius:.1f}/60.0)
     AND   tractor.type = 'PSF'
@@ -46,15 +46,15 @@ def query_noir_datalab_extended(RA, DEC, RADIUS = 16):
         RADIUS: Radius (unit: arcmin)
 
     Returns:
-        Table:  Photometry catalogue (columsn: ra, dec, mag_[g,r,z], snr_[g,r,z], allmask_[g,r,z])
+        Table:  Photometry catalogue (columsn: ra, dec, mag_[g,r,i,z], snr_[g,r,i,z], allmask_[g,r,i,z])
     """
 
     query = '''
     SELECT
 
-    ra, dec, mag_g, mag_r, mag_z, snr_g, snr_r, snr_z, allmask_g, allmask_r, allmask_z
+    ra, dec, mag_g, mag_r, mag_i, mag_z, snr_g, snr_r, snr_i, snr_z, allmask_g, allmask_r, allmask_i, allmask_z
 
-    FROM ls_dr9.tractor AS tractor
+    FROM ls_dr10.tractor AS tractor
 
     WHERE 't' = q3c_join({ra}, {dec}, tractor.ra, tractor.dec, {radius:.1f}/60.0)
     AND   NOT tractor.type = 'PSF'

@@ -262,7 +262,9 @@ object_properties['DEC']			= dec_dd
 
 print(bcolors.OKGREEN + "\nIs the object in the image footprint?" + bcolors.ENDC)
 
+
 try:
+	#if True:
 	x_exp, y_exp					= fits_tools.sky2xy (args.fits, RA=ra_dd, DEC=dec_dd)
 	object_properties['X_EXP']		= x_exp
 	object_properties['Y_EXP']		= y_exp
@@ -634,8 +636,6 @@ else:
 																		UPPER	= 100)
 #																		BW		= args.bw)
 
-	import pdb; pdb.set_trace()
-
 	matched_standard				= local_sequence['CAT']
 
 	logger.info('Final number of stars in the local sequenc: {num_stars}'.format(num_stars=local_sequence['NUMSTARS']))
@@ -852,6 +852,7 @@ for i in range(len(summary_zeropoint['METHOD'])):
 		j									+= 1
 
 summary_zeropoint['diam(px)']					= 2*summary_zeropoint['r(FWHM)'] * FWHM_median#[0, 0, apertures[0], apertures[1], apertures[2], apertures[3]]#
+summary_zeropoint['diam(arcsec)']				= summary_zeropoint['diam(px)'] * fits_tools.pix2arcsec(args.fits)
 
 summary_zeropoint['MAG_3UL_GLOB']			= np.nan*len(summary_zeropoint)
 summary_zeropoint['AP_cor']					= summary_zeropoint['ZP'][-1] - summary_zeropoint['ZP'] 
@@ -866,7 +867,7 @@ for key in summary_zeropoint['METHOD']:
 	else:
 		summary_zeropoint['MAG_3UL_GLOB'][summary_zeropoint['METHOD'] == key] 	= np.nan
 
-for key in ['ZP', 'ZP_ERRP', 'ZP_ERRM', 'MAG_3UL_GLOB', 'AP_cor', 'diam(px)']:
+for key in ['ZP', 'ZP_ERRP', 'ZP_ERRM', 'MAG_3UL_GLOB', 'AP_cor', 'diam(px)', 'diam(arcsec)']:
 	summary_zeropoint[key].format 			= '.03f'
 
 # Print summary

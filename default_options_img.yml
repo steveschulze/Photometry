@@ -1,0 +1,65 @@
+### PyNOT Imaging Pipeline -- Parameter File
+
+dataset:                     # The PyNOT File Classification (*.pfc)
+
+# [Static Calibrations]
+# Note: these will be applied to all objects in the pipeline!
+mbias:                       # Static master bias frame
+# [-------------------]
+
+clean:         True          # Remove temporary images (CCD processed before trimming)
+# [Recipe Options]
+bias:
+  kappa:         15          # Threshold for sigma clipping in Flat combiniation
+
+flat:
+  kappa:         15          # Threshold for sigma clipping in Flat combiniation
+
+crr:                         # Parameters of `astroscrappy.detect_cosmics`
+  niter:       2             # Number of iterations for cosmic ray rejection  (turn off by setting niter = 0)
+  gain:        null          # Detector gain, e-/ADU. Read from the header by default
+  readnoise:   null          # Detector read-out noise, e-. Read from the header by default
+  sigclip:     4.5           # Laplacian-to-noise limit for cosmic ray detection. Lower values will flag more pixels as cosmics
+  sigfrac:     0.3           # Fractional detection limit for neighboring pixels
+  objlim:      5.0           # Minimum contrast. Increase this value if cores of bright stars/skylines are flagged as cosmics
+  satlevel:    113500.0      # Saturation limit of ALFOSC CCD14 in e-
+  cleantype:   'meanmask'    # Cleaning filter (5x5): {'median', 'medmask', 'meanmask', 'idw'}, see astroscrappy for details
+
+combine:
+  max_control_points: 50     # Maximum number of control point-sources to find the transformation
+  detection_sigma:     5     # Factor of background std-dev above which is considered a detection
+  min_area:            9     # Minimum number of connected pixels to be considered a source
+  method:      'weighted'    # Combination method: 'weighted', 'median', or 'mean'
+
+skysub:
+  threshold:    3            # Threshold for masking out objects
+  defringe:    False         # Create an average fringe image and subtract from individual frames?
+
+sep-background:
+  bw:          64            # Width of background boxes in pixels
+  bh:          64            # Height of background boxes in pixels
+  fw:          3             # Background filter width in boxes
+  fh:          3             # Background filter height in boxes
+  fthresh:     0.0           # Background filter threshold
+
+sep-extract:
+  aperture:         10.0     # Circular aperture radius in pixels
+  threshold:        5.0      # Detection threshold
+  minarea:          15       # Minimum number of pixels required for an object
+  deblend_nthresh:  32       # Number of thresholds used for object deblending
+  deblend_cont:     0.005    # Minimum contrast ratio used for object deblending. Disable deblending by setting to 1.0
+  clean:            True     # Perform cleaning?
+  clean_param:      1.0      # Cleaning parameter (see SExtractor manual)
+  segmentation_map: True     # Create a segmentation map?
+
+wcs:
+  max_num:          60       # Maximum number of targets used to fit the WCS solution.
+  min_num:          10       # Minimum number of targets required.
+  G_lim:            15       # Bright limit of Gaia sources. Reject targets brighter than G < G_lim
+  q_lim:            0.8      # Reject elliptical sources with axis ratio < `q_lim`
+  kappa:             3       # Threshold for projected distance filtering.
+
+sdss_flux:
+  q_lim:            0.8      # Reject elliptical sources with axis ratio < `q_lim`
+  kappa:              3      # Threshold for magnitude filtering.
+  match_radius:       1      # Matching radius in arcsec for source catalog and SDSS catalog

@@ -101,6 +101,53 @@ catalog_prop['DES']['FILTER']			= ['g', 'r', 'i', 'z', 'y']
 catalog_prop['DES']['SIGMA_HIGH']		= 0
 catalog_prop['DES']['SIGMA_LOW']		= 0.2
 
+def PS1_to_HSC(DATA):
+
+	# Based on 
+	# https://hsc-release.mtk.nao.ac.jp/doc/index.php/data/
+	# https://hsc.mtk.nao.ac.jp/pipedoc/pipedoc_8_e/colorterms.html
+
+	# g 	g	r	0.005728	0.061749	-0.001125
+	# r 	r	i	-0.000144	0.001369	-0.00838
+	# r2 	r	i	-3.2E-05	-0.002866	-0.012638
+	# i 	i	z	0.000643	-0.130078	-0.006855
+	# i2 	i	z	0.001625	-0.200406	-0.013666
+	# z		z	y	-0.005362	-0.221551	-0.308279
+	# y	 	y	z	-0.002055	0.20968	0.227296
+
+
+	gr  = DATA['g_PS1'] - DATA['r_PS1']
+	ri  = DATA['r_PS1'] - DATA['i_PS1']
+	iz  = DATA['i_PS1'] - DATA['z_PS1']
+	zy  = DATA['z_PS1'] - DATA['y_PS1']
+	yz  = DATA['y_PS1'] - DATA['z_PS1']
+
+	gr_err  = np.sqrt(DATA['g_PS1_ERR']**2 + DATA['r_PS1_ERR']**2)
+	ri_err  = np.sqrt(DATA['r_PS1_ERR']**2 + DATA['i_PS1_ERR']**2)
+	iz_err  = np.sqrt(DATA['i_PS1_ERR']**2 + DATA['z_PS1_ERR']**2)
+	zy_err  = np.sqrt(DATA['z_PS1_ERR']**2 + DATA['y_PS1_ERR']**2)
+	yz_err  = np.sqrt(DATA['y_PS1_ERR']**2 + DATA['z_PS1_ERR']**2)
+
+
+	DATA['g_HSC']  = DATA['g_PS1'] + 0.0057280 + 0.061749 * gr - 0.001125 * gr**2
+	DATA['r_HSC']  = DATA['r_PS1'] - 0.0001440 + 0.001369 * ri - 0.008380 * ri**2
+	DATA['r2_HSC'] = DATA['r_PS1'] - 0.0000320 - 0.002866 * ri - 0.012638 * ri**2
+	DATA['i_HSC']  = DATA['i_PS1'] + 0.0006430 - 0.130078 * iz - 0.006855 * iz**2
+	DATA['i2_HSC'] = DATA['i_PS1'] + 0.0016250 - 0.200406 * iz - 0.013666 * iz**2
+	DATA['z_HSC']  = DATA['z_PS1'] - 0.0053620 - 0.221551 * zy - 0.308279 * zy**2
+	DATA['y_HSC']  = DATA['y_PS1'] - 0.0020550 + 0.209680 * yz + 0.227296 * yz**2
+
+	DATA['g_HSC_ERR']  = np.sqrt(DATA['g_PS1_ERR']**2 + (0.061749 * gr_err)**2 + (2 * 0.001125 * gr * gr_err)**2)
+	DATA['r_HSC_ERR']  = np.sqrt(DATA['r_PS1_ERR']**2 + (0.001369 * ri_err)**2 + (2 * 0.008380 * ri * ri_err)**2)
+	DATA['r2_HSC_ERR'] = np.sqrt(DATA['r_PS1_ERR']**2 + (0.002866 * ri_err)**2 + (2 * 0.012638 * ri * ri_err)**2)
+	DATA['i_HSC_ERR']  = np.sqrt(DATA['i_PS1_ERR']**2 + (0.130078 * iz_err)**2 + (2 * 0.006855 * iz * iz_err)**2)
+	DATA['i2_HSC_ERR'] = np.sqrt(DATA['i_PS1_ERR']**2 + (0.200406 * iz_err)**2 + (2 * 0.013666 * iz * iz_err)**2)
+	DATA['z_HSC_ERR']  = np.sqrt(DATA['z_PS1_ERR']**2 + (0.221551 * zy_err)**2 + (2 * 0.308279 * zy * zy_err)**2)
+	DATA['y_HSC_ERR']  = np.sqrt(DATA['y_PS1_ERR']**2 + (0.209680 * yz_err)**2 + (2 * 0.227296 * yz * yz_err)**2)
+
+
+	return DATA
+
 def PS1_to_SDSS(DATA):
 
 	# Based on http://adsabs.harvard.edu/abs/2016ApJ...822...66F
@@ -356,7 +403,7 @@ def crossmatch(X1, X2, max_distance=np.inf):
 
 	kdt			= cKDTree(X2)
 
-	dist, ind	= kdt.query(X1, k=1, distance_upper_bound=max_distance, n_jobs=-1)
+	dist, ind	= kdt.query(X1, k=1, distance_upper_bound=max_distance, workers=-1)
 
 	return dist, ind
 
