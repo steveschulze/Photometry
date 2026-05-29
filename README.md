@@ -18,15 +18,16 @@ Version 2026-05-29
 | `photometry.py` | Aperture photometry for ground-based images |
 | `photometry_hst.py` | Aperture photometry + curve-of-growth for HST images |
 
+
 | Module | Purpose |
 |--------|---------|
-| `phot_routines.py` | Core algorithms: source extraction (sep), aperture photometry (photutils), ZP determination |
-| `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching |
+| `extraction.py` | sep source detection, aperture photometry, background estimation |
+| `calibration.py` | Local sequence, zeropoint bootstrap, science output tables, poststamp |
+| `hst_routines.py` | HST-specific photometry, aperture corrections (pysynphot), curve-of-growth |
+| `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching, NOIR DataLab |
 | `fits_tools.py` | FITS utilities and WCS coordinate transformations |
-| `stat_tools.py` | Robust bootstrap statistics for zeropoint determination |
+| `utils.py` | Terminal colour codes and bootstrap statistics |
 | `plotsettings.py` | Matplotlib style and Vigit colour scheme |
-| `misc.py` | Terminal colour codes |
-| `routines_noir.py` | NOIR DataLab queries for DESI Legacy Survey |
 | `sip_to_pv.py` | Convert SIP distortion keywords to PV format |
 
 ---

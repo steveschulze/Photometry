@@ -1,5 +1,5 @@
 """
-phot_routines.py — HST-specific aperture photometry routines.
+hst_routines.py — HST-specific aperture photometry routines.
 
 Handles the HST-specific pipeline: curve-of-growth analysis, aperture
 corrections via pysynphot, drizzled-image noise corrections, and diagnostic
@@ -13,9 +13,6 @@ hst_make_cutout(...)            Multi-panel aperture diagnostic cutout
 hst_cog(...)                    Curve of growth with Monte Carlo errors
 hst_scale(instrument, mode)     Native pixel scale per HST detector
 hst_zeropoint(header, diameter) AB zeropoint + pysynphot aperture correction
-
-Also re-exports catalog_prop from cat_tools for backward compatibility with
-photometry.py which accesses phot_routines.catalog_prop.
 """
 
 __version__ = "2026-05-29"
@@ -33,7 +30,6 @@ from matplotlib.colors import LogNorm
 import matplotlib.patheffects as PathEffects
 from scipy import stats as stats_scipy
 
-from cat_tools import catalog_prop  # re-export for backward compat
 from extraction import aperture_photometry
 from utils import bcolors
 from plotsettings import (

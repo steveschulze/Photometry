@@ -36,7 +36,7 @@ from     matplotlib import pylab as plt
 
 import   extraction
 import   fits_tools
-import   phot_routines
+import   hst_routines
 from     utils import bcolors
 
 
@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> None:
               'Check --ap-inner-annulus.'
               + bcolors.ENDC)
 
-    photometry_tbl = phot_routines.hst_aperture_photometry(
+    photometry_tbl = hst_routines.hst_aperture_photometry(
         args.fits,
         np.array([x_obs, y_obs]),
         apertures    / 2.0,
@@ -245,7 +245,7 @@ def main(argv: list[str] | None = None) -> None:
           + bcolors.ENDC)
     logger.info('Step 5: curve of growth')
 
-    phot_routines.hst_cog(
+    hst_routines.hst_cog(
         args.fits,
         np.array([x_obs, y_obs]),
         args.ap_inner_annulus,
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> None:
           + bcolors.ENDC)
     logger.info('Step 6: cutout')
 
-    phot_routines.hst_make_cutout(
+    hst_routines.hst_make_cutout(
         args.fits,
         [x_obs, y_obs],
         [x_exp, y_exp],

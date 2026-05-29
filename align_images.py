@@ -3,7 +3,7 @@
 import 	argparse
 from	astropy.io import fits, votable
 import 	numpy as np
-import	phot_routines
+import	extraction
 import	os
 import	sys
 
@@ -28,7 +28,7 @@ args				= parser.parse_args()
 
 # Setting up environment for sextractor
 
-phot_routines.setup_sextractor()
+extraction.setup_sextractor()
 
 # Generate catalogue of the reference image
 
