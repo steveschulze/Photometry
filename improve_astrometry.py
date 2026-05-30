@@ -3,8 +3,9 @@
 improve_astrometry.py — Improve the WCS calibration of a FITS image.
 
 Uses astrometry.net's ``solve-field`` command for blind astrometric
-calibration, then converts the SIP distortion keywords to PV format for
-compatibility with SExtractor / sep.
+calibration using astrometry.net's own built-in ``image2xy`` source
+detector (no SExtractor binary required), then converts the SIP distortion
+keywords to PV format for compatibility with sep.
 
 Usage
 -----
@@ -20,7 +21,6 @@ from      astropy.io import fits
 import    fits_tools
 from      utils import bcolors
 from      pathlib import Path
-import    extraction
 import    sip_to_pv
 import    subprocess
 import    sys
@@ -70,9 +70,6 @@ def main(args=None):
     fits_path = Path(args.fits)
     outfile   = fits_path.with_name(fits_path.stem + '_wcs' + fits_path.suffix)
 
-    # Write SExtractor config files for astrometry.net
-    extraction.setup_sextractor(output_dir=str(fits_path.parent or Path('.')))
-
     log_astro   = open('astro.log',      'w')
     log_sip2pv  = open('astro_sip2pv.log', 'w')
 
@@ -87,18 +84,21 @@ def main(args=None):
     fits.writeto(str(fits_path), data, header,
                  overwrite=True, output_verify='silentfix')
 
-    # Base astrometry.net command
+    # Build solve-field command.
+    # We do NOT pass --source-extractor-config: astrometry.net's built-in
+    # image2xy handles source detection without requiring a SExtractor binary.
+    # Using source-extractor externally caused segfaults because the relative
+    # paths in default.sex (default.conv, default.nnw) break when solve-field
+    # spawns source-extractor from a temp directory.
     cmd_base = [
         'solve-field', '--no-plots',
-        '--x-column', 'XWIN_IMAGE', '--y-column', 'YWIN_IMAGE',
-        '--sort-column', 'FLUX_AUTO',
         str(fits_path),
         '--uniformize', '0',
-        '--cpulimit', '60',
-        '--ra',      str(ra_dd),
-        '--dec',     str(dec_dd),
-        '--radius',  str(args.radius),
-        '--new-fits', str(outfile),
+        '--cpulimit',   '60',
+        '--ra',         str(ra_dd),
+        '--dec',        str(dec_dd),
+        '--radius',     str(args.radius),
+        '--new-fits',   str(outfile),
         '--overwrite',
         '--downsample', str(args.downsample),
     ]
@@ -111,14 +111,7 @@ def main(args=None):
     else:
         tweak_flags = ['-T']
 
-    status = _run_astrometry(cmd_base, tweak_flags, fits_path,
-                              log_astro, style='new')
-
-    if status != 0:
-        # Older astrometry.net used --sextractor-config; newer uses
-        # --source-extractor-config.  Try the older form as fallback.
-        status = _run_astrometry(cmd_base, tweak_flags, fits_path,
-                                  log_astro, style='old')
+    _run_astrometry(cmd_base, tweak_flags, fits_path, log_astro)
 
     log_astro.close()
 
@@ -159,39 +152,37 @@ def main(args=None):
     log_sip2pv.close()
 
 
-def _run_astrometry(cmd_base, tweak_flags, fits_path, log_file, style='new'):
-    """Run solve-field with one of the two config-file keyword styles.
+def _run_astrometry(
+    cmd_base: list[str],
+    tweak_flags: list[str],
+    fits_path: Path,
+    log_file,
+) -> int:
+    """Run solve-field using astrometry.net's built-in image2xy source detector.
 
     Parameters
     ----------
-    cmd_base : list of str
-        Base command list (without the config-file flag).
-    tweak_flags : list of str
-        ``--tweak-order N`` or ``-T`` flags.
+    cmd_base : list[str]
+        Base solve-field command (without tweak flags).
+    tweak_flags : list[str]
+        ``['--tweak-order', 'N']`` or ``['-T']``.
     fits_path : Path
-        Input FITS path (used only for messaging).
+        Input FITS path — used only for the success message.
     log_file : file
-        Open log file for stderr output.
-    style : str
-        ``'new'`` uses ``--source-extractor-config``;
-        ``'old'`` uses ``--sextractor-config``.
+        Open log file; stderr from solve-field is appended on failure.
 
     Returns
     -------
     int
         Process return code (0 = success).
     """
-    sex_cfg  = str(Path(fits_path.parent or Path('.')) / 'default.sex')
-    cfg_flag = ('--source-extractor-config' if style == 'new'
-                else '--sextractor-config')
-
-    cmd = cmd_base + [cfg_flag, sex_cfg] + tweak_flags
+    cmd = cmd_base + tweak_flags
     print(' '.join(cmd))
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode == 0:
         print(bcolors.OKGREEN
-              + f'WCS calibration successful ({style} API): {fits_path}'
+              + f'WCS calibration successful: {fits_path}'
               + bcolors.ENDC)
     else:
         log_file.write(proc.stderr)

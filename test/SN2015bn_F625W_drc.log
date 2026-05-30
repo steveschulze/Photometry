@@ -1,10 +1,10 @@
-2026-05-29T22:29:04  INFO      Output directory: results
-2026-05-29T22:29:04  INFO      Target in footprint: OK
-2026-05-29T22:29:04  INFO      Step 2: source catalogue
-2026-05-29T22:29:05  WARNING   Kron photometry failed: invalid aperture parameters
-2026-05-29T22:29:05  WARNING   Petrosian photometry failed: invalid aperture parameters
-2026-05-29T22:29:05  INFO      Step 3: background
-2026-05-29T22:29:05  INFO      Step 4: photometry
-2026-05-29T22:29:06  INFO      Step 5: curve of growth
-2026-05-29T22:29:08  INFO      Step 6: cutout
-2026-05-29T22:29:09  INFO      Step 7: output tables
+2026-05-29T22:36:56  INFO      Output directory: results
+2026-05-29T22:36:56  INFO      Target in footprint: OK
+2026-05-29T22:36:56  INFO      Step 2: source catalogue
+2026-05-29T22:36:58  WARNING   Kron photometry failed: invalid aperture parameters
+2026-05-29T22:36:58  WARNING   Petrosian photometry failed: invalid aperture parameters
+2026-05-29T22:36:58  INFO      Step 3: background
+2026-05-29T22:36:58  INFO      Step 4: photometry
+2026-05-29T22:37:00  INFO      Step 5: curve of growth
+2026-05-29T22:37:04  INFO      Step 6: cutout
+2026-05-29T22:37:13  INFO      Step 7: output tables
