@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/Volumes/Home/steve/anaconda3/envs/photometry/bin/image2pnm", line 14, in <module>
-    from astrometry.util.image2pnm import main
-ModuleNotFoundError: No module named 'astrometry'
-augment-xylist.c:591:backtick Failed to run command: /Volumes/Home/steve/anaconda3/envs/photometry/bin/image2pnm --infile SN2015bn_SDSS_r_wcs.fits --uncompressed-outfile /tmp/tmp.uncompressed.qoTiOC --outfile /tmp/tmp.ppm.0MXeN3 --ppm --mydir /Volumes/Home/steve/anaconda3/envs/photometry/bin/solve-field
- ioutils.c:568:run_command_get_outputs Command failed: return value 1
