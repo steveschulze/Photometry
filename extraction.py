@@ -570,48 +570,70 @@ def extract_sources(
             logger.warning(msg)
         return table.Table()
 
-    # 4. WCS sky coordinates ---------------------------------------------------
+    # 4. Windowed centroids (XWIN_IMAGE / YWIN_IMAGE equivalent) ---------------
+    # sep.winpos() uses a Gaussian-weighted iterative centroid starting from the
+    # isophotal position, matching SExtractor's XWIN_IMAGE algorithm.  Use
+    # sigma = a / sqrt(2) per object (SExtractor convention: sigma ≈ FWHM/2.355
+    # ≈ a/sqrt(2)).  Fall back to isophotal centroid where winpos fails.
+    try:
+        sig = np.maximum(objects['a'] / np.sqrt(2.0), 0.5)
+        x_win, y_win, flag_win = sep.winpos(sci_sub,
+                                             objects['x'], objects['y'], sig)
+        good_win = flag_win == 0
+        x_pos    = np.where(good_win, x_win, objects['x'])
+        y_pos    = np.where(good_win, y_win, objects['y'])
+        n_fb     = int((~good_win).sum())
+        if n_fb > 0 and logger:
+            logger.debug('winpos: %d/%d sources fell back to isophotal centroid',
+                         n_fb, len(objects))
+    except Exception as exc:
+        if logger:
+            logger.warning('sep.winpos failed (%s); using isophotal centroids', exc)
+        x_pos = objects['x'].copy()
+        y_pos = objects['y'].copy()
+
+    # 5. WCS sky coordinates --------------------------------------------------
     try:
         wcs_obj   = wcs.WCS(sci_header)
         pix_scale = float(np.median(proj_plane_pixel_scales(wcs_obj)) * 3600.0)
-        ra, dec   = wcs_obj.wcs_pix2world(objects['x'], objects['y'], 0)
+        ra, dec   = wcs_obj.wcs_pix2world(x_pos, y_pos, 0)
     except Exception as exc:
         if logger:
-            logger.warning(f'WCS transformation failed: {exc}')
+            logger.warning('WCS transformation failed: %s', exc)
         ra        = np.full(len(objects), np.nan)
         dec       = np.full(len(objects), np.nan)
         pix_scale = 1.0
 
-    # 5. Gain ------------------------------------------------------------------
+    # 6. Gain -----------------------------------------------------------------
     gain_val = get_gain(fits_path, gain_key, logger)
 
-    # 6. Kron (AUTO) photometry ------------------------------------------------
+    # 7. Kron (AUTO) photometry -----------------------------------------------
     try:
         kronrad, _ = sep.kron_radius(
             sci_sub,
-            objects['x'], objects['y'],
+            x_pos, y_pos,
             objects['a'], objects['b'], objects['theta'], 6.0)
         kronrad  = np.maximum(kronrad, 0.0)
         r_kron   = np.maximum(KRON_FACTOR * kronrad, KRON_MIN_R)
 
         flux_auto, fluxerr_auto, flag_auto = sep.sum_ellipse(
             sci_sub,
-            objects['x'], objects['y'],
+            x_pos, y_pos,
             objects['a'], objects['b'], objects['theta'],
             r_kron, gain=gain_val, subpix=5)
     except Exception as exc:
         if logger:
-            logger.warning(f'Kron photometry failed: {exc}')
+            logger.warning('Kron photometry failed: %s', exc)
         flux_auto    = np.zeros(len(objects))
         fluxerr_auto = np.zeros(len(objects))
         flag_auto    = np.zeros(len(objects), dtype=int)
         kronrad      = np.zeros(len(objects))
 
-    # 7. Half-light radius (→ FWHM) -------------------------------------------
+    # 8. Half-light radius (→ FWHM) ------------------------------------------
     try:
         flux_radius, _ = sep.flux_radius(
             sci_sub,
-            objects['x'], objects['y'],
+            x_pos, y_pos,
             6.0 * objects['a'],
             0.5,
             normflux=np.abs(flux_auto),
@@ -619,38 +641,38 @@ def extract_sources(
         flux_radius = np.maximum(flux_radius, 0.0)
     except Exception as exc:
         if logger:
-            logger.warning(f'flux_radius failed: {exc}')
+            logger.warning('flux_radius failed: %s', exc)
         flux_radius = np.zeros(len(objects))
 
-    # 8. Petrosian photometry (≈ 2 × half-light radius) -----------------------
+    # 9. Petrosian photometry (≈ 2 × half-light radius) ----------------------
     try:
         r_petro = np.maximum(PETRO_FACTOR * flux_radius, PETRO_MIN_R)
         flux_petro, fluxerr_petro, _ = sep.sum_ellipse(
             sci_sub,
-            objects['x'], objects['y'],
+            x_pos, y_pos,
             objects['a'], objects['b'], objects['theta'],
             r_petro, gain=gain_val, subpix=5)
     except Exception as exc:
         if logger:
-            logger.warning(f'Petrosian photometry failed: {exc}')
+            logger.warning('Petrosian photometry failed: %s', exc)
         flux_petro    = flux_auto.copy()
         fluxerr_petro = fluxerr_auto.copy()
 
-    # 9. Fixed-aperture photometry --------------------------------------------
+    # 10. Fixed-aperture photometry -------------------------------------------
     if phot_apertures is not None:
         aper_diam = np.asarray(phot_apertures, dtype=float)
     else:
         aper_diam = np.array([10.0])
 
-    aper_radii     = aper_diam / 2.0
-    flux_aper_all  = []
+    aper_radii       = aper_diam / 2.0
+    flux_aper_all    = []
     fluxerr_aper_all = []
 
     for r in aper_radii:
         try:
             fl, fle, _ = sep.sum_circle(
                 sci_sub,
-                objects['x'], objects['y'],
+                x_pos, y_pos,
                 float(r), gain=gain_val, subpix=5)
         except Exception:
             fl  = np.zeros(len(objects))
@@ -658,7 +680,7 @@ def extract_sources(
         flux_aper_all.append(fl)
         fluxerr_aper_all.append(fle)
 
-    # 10. Derived quantities --------------------------------------------------
+    # 11. Derived quantities --------------------------------------------------
     fwhm_image = 2.0 * flux_radius          # Gaussian approximation
     fwhm_world = fwhm_image * pix_scale     # arcsec
 
@@ -674,12 +696,12 @@ def extract_sources(
                             / np.maximum(flux, 1e-30),
                             np.nan)
 
-    # 11. Assemble output table -----------------------------------------------
+    # 12. Assemble output table -----------------------------------------------
     flags  = objects['flag'].astype(int) | flag_auto.astype(int)
 
     result = table.Table()
-    result['XWIN_IMAGE']     = objects['x'] + 1.0     # 0-indexed → 1-indexed
-    result['YWIN_IMAGE']     = objects['y'] + 1.0
+    result['XWIN_IMAGE']     = x_pos + 1.0     # windowed, 0-indexed → 1-indexed
+    result['YWIN_IMAGE']     = y_pos + 1.0
     result['ALPHAWIN_J2000'] = ra
     result['DELTAWIN_J2000'] = dec
     result['FLAGS']          = flags
@@ -707,7 +729,7 @@ def extract_sources(
         result[f'MAG_APER{sfx}']     = _mag(fl)
         result[f'MAGERR_APER{sfx}']  = _magerr(fl, fle)
 
-    # 12. ASSOC positional matching -------------------------------------------
+    # 13. ASSOC positional matching -------------------------------------------
     if assoc_file is not None:
         try:
             assoc_data  = ascii.read(str(assoc_file))
