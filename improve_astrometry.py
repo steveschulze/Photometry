@@ -26,6 +26,7 @@ __version__ = "2026-05-30"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
 import   argparse
+import   logging
 import   subprocess
 import   sys
 from     pathlib import Path
@@ -37,7 +38,7 @@ from     astropy import wcs as astropy_wcs
 
 import   fits_tools
 import   sip_to_pv
-from     utils import bcolors
+from     utils import bcolors, setup_logging
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,8 @@ def get_parser() -> argparse.ArgumentParser:
                    help='Set for fields smaller than 5 arcmin.')
     p.add_argument('--tweak-order', type=int,   default=2,
                    help='Polynomial order for SIP WCS corrections (0 = no SIP).')
+    p.add_argument('--loglevel',    type=str,   default='INFO',
+                   help='Log level (DEBUG/INFO/WARNING/ERROR/CRITICAL).')
     return p
 
 
@@ -79,6 +82,7 @@ def _make_xylist(
     fits_path: Path,
     detect_thresh: float = 5.0,
     max_sources: int = 500,
+    logger: logging.Logger | None = None,
 ) -> tuple[Path, int, int]:
     """Detect sources with sep and write their positions to a FITS xylist.
 
@@ -95,6 +99,8 @@ def _make_xylist(
         Detection threshold in sigma above background (default: 5.0).
     max_sources : int
         Maximum number of sources to include (brightest-first; default: 500).
+    logger : logging.Logger | None
+        Logger instance for recording detection statistics.
 
     Returns
     -------
@@ -123,10 +129,17 @@ def _make_xylist(
 
     objects = sep.extract(data_sub, thresh, minarea=5, filter_type='matched')
 
-    if len(objects) == 0:
-        raise RuntimeError(
-            f'No sources detected at {detect_thresh}σ in {fits_path}. '
-            'Lower --det-thresh or check the image.')
+    n_detected = len(objects)
+    if n_detected == 0:
+        msg = (f'No sources detected at {detect_thresh}σ in {fits_path}. '
+               'Lower --det-thresh or check the image.')
+        if logger:
+            logger.error(msg)
+        raise RuntimeError(msg)
+
+    if logger:
+        logger.info('Source detection: %d objects at %.1fσ (threshold %.4f ADU)',
+                    n_detected, detect_thresh, thresh)
 
     # Windowed centroids (equivalent to SExtractor's XWIN_IMAGE / YWIN_IMAGE).
     # sep.winpos() uses a Gaussian-weighted iterative centroid that is more
@@ -142,13 +155,15 @@ def _make_xylist(
         x_pos = np.where(good_win, xwin, objects['x'])
         y_pos = np.where(good_win, ywin, objects['y'])
         n_win = int(good_win.sum())
-        print(bcolors.OKGREEN
-              + f'Windowed centroids: {n_win}/{len(objects)} succeeded'
-              + bcolors.ENDC)
+        msg = f'Windowed centroids: {n_win}/{n_detected} succeeded'
+        print(bcolors.OKGREEN + msg + bcolors.ENDC)
+        if logger:
+            logger.info(msg)
     except Exception as exc:
-        print(bcolors.WARNING
-              + f'sep.winpos failed ({exc}); falling back to isophotal centroids'
-              + bcolors.ENDC)
+        msg = f'sep.winpos failed ({exc}); falling back to isophotal centroids'
+        print(bcolors.WARNING + msg + bcolors.ENDC)
+        if logger:
+            logger.warning(msg)
         x_pos = objects['x']
         y_pos = objects['y']
 
@@ -163,9 +178,10 @@ def _make_xylist(
         'FLUX': objects['flux'][idx],
     }).write(str(xylist_path), format='fits', overwrite=True)
 
-    print(bcolors.OKGREEN
-          + f'{len(idx)} sources written to {xylist_path.name}'
-          + bcolors.ENDC)
+    msg = f'{len(idx)} sources written to {xylist_path.name}'
+    print(bcolors.OKGREEN + msg + bcolors.ENDC)
+    if logger:
+        logger.info(msg)
 
     return xylist_path, naxis1, naxis2
 
@@ -224,7 +240,11 @@ def _apply_wcs(original_fits: Path, wcs_file: Path, output_fits: Path) -> None:
 # WCS quality assessment
 # ---------------------------------------------------------------------------
 
-def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
+def _wcs_rms(
+    corr_file: Path,
+    wcs_fits: Path,
+    logger: logging.Logger | None = None,
+) -> None:
     """Report the WCS calibration residual RMS from astrometry.net matches.
 
     Reads the correspondence FITS file produced by ``solve-field -B``.
@@ -241,9 +261,14 @@ def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
     wcs_fits : Path
         The output FITS file with the solved WCS (used to derive pixel scale
         for reporting residuals in pixels as well as milli-arcseconds).
+    logger : logging.Logger | None
+        Logger instance for recording statistics.
     """
     if not corr_file.exists():
-        print(bcolors.WARNING + 'Correspondence file not found; skipping RMS.' + bcolors.ENDC)
+        msg = 'Correspondence file not found; skipping RMS.'
+        print(bcolors.WARNING + msg + bcolors.ENDC)
+        if logger:
+            logger.warning(msg)
         return
 
     try:
@@ -256,7 +281,10 @@ def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
         n    = len(corr)
 
         if n == 0:
-            print(bcolors.WARNING + 'No matches in correspondence file.' + bcolors.ENDC)
+            msg = 'No matches in correspondence file.'
+            print(bcolors.WARNING + msg + bcolors.ENDC)
+            if logger:
+                logger.warning(msg)
             return
 
         # Angular separation between detected source and index catalog star
@@ -264,10 +292,12 @@ def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
                          dec=corr['field_dec'] * u.deg)
         index = SkyCoord(ra=corr['index_ra'] * u.deg,
                          dec=corr['index_dec'] * u.deg)
-        sep_arcsec = field.separation(index).arcsec
+        sep_arcsec = np.asarray(field.separation(index).arcsec, dtype=float)
 
         rms_arcsec = float(np.sqrt(np.mean(sep_arcsec**2)))
         rms_mas    = rms_arcsec * 1000.0
+        med_mas    = float(np.median(sep_arcsec) * 1000.0)
+        max_mas    = float(np.max(sep_arcsec) * 1000.0)
 
         # Convert to pixels using the solved pixel scale
         pix_scale = 1.0
@@ -284,11 +314,21 @@ def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
               + bcolors.ENDC)
         print(f'  RMS residual : {rms_mas:.0f} mas  ({rms_px:.3f} px)')
         print(f'  Pixel scale  : {pix_scale:.4f} arcsec/px')
-        print(f'  Median sep   : {np.median(sep_arcsec)*1000:.0f} mas')
-        print(f'  Max sep      : {sep_arcsec.max()*1000:.0f} mas')
+        print(f'  Median sep   : {med_mas:.0f} mas')
+        print(f'  Max sep      : {max_mas:.0f} mas')
+
+        if logger:
+            logger.info('WCS calibration quality — %d matched stars', n)
+            logger.info('  RMS residual : %.0f mas  (%.3f px)', rms_mas, rms_px)
+            logger.info('  Pixel scale  : %.4f arcsec/px', pix_scale)
+            logger.info('  Median sep   : %.0f mas', med_mas)
+            logger.info('  Max sep      : %.0f mas', max_mas)
 
     except Exception as exc:
-        print(bcolors.WARNING + f'WCS RMS computation failed: {exc}' + bcolors.ENDC)
+        msg = f'WCS RMS computation failed: {exc}'
+        print(bcolors.WARNING + msg + bcolors.ENDC)
+        if logger:
+            logger.warning(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -309,10 +349,23 @@ def main(args: list[str] | None = None) -> None:
     fits_path = Path(args.fits)
     outfile   = fits_path.with_name(fits_path.stem + '_wcs' + fits_path.suffix)
 
+    # Logger — records the full run history to <stem>.log
+    log_path = fits_path.with_name(fits_path.stem + '_astrometry.log')
+    logger   = setup_logging('improve_astrometry', log_path, level=args.loglevel)
+
+    # Low-level stderr captures from external processes
     log_astro  = open('astro.log',       'w')
     log_sip2pv = open('astro_sip2pv.log', 'w')
 
     ra_dd, dec_dd = fits_tools.convert_hms_dd(args.ra, args.dec)
+
+    # Log the invocation
+    logger.info('improve_astrometry.py  %s', fits_path)
+    logger.info('Command: %s', ' '.join(sys.argv))
+    logger.info('Target : RA=%.6f  Dec=%.6f  radius=%.3f deg',
+                ra_dd, dec_dd, args.radius)
+    logger.info('Options: det_thresh=%.1f  max_sources=%d  tweak_order=%d',
+                args.det_thresh, args.max_sources, args.tweak_order)
 
     print(bcolors.HEADER + 'Process image: ' + str(fits_path) + bcolors.ENDC)
 
@@ -323,27 +376,31 @@ def main(args: list[str] | None = None) -> None:
     fits.writeto(str(fits_path), hdu_data, hdu_header,
                  overwrite=True, output_verify='silentfix')
 
-    # 1. Detect sources with sep and write xylist
+    # Step 1: Detect sources with sep and write xylist
+    logger.info('Step 1: source detection')
     try:
         xylist, img_w, img_h = _make_xylist(
             fits_path,
             detect_thresh = args.det_thresh,
-            max_sources   = args.max_sources)
+            max_sources   = args.max_sources,
+            logger        = logger)
     except RuntimeError as exc:
         print(bcolors.FAIL + str(exc) + bcolors.ENDC)
+        logger.error(str(exc))
         return
 
-    # 2. Build solve-field command using the xylist.
-    #    Passing the xylist as a positional argument bypasses image2pnm and
-    #    removelines — the Python 3.8 helper scripts that crash on Python 3.11.
-    #    -w / -e supply the image dimensions so solve-field knows the field size.
-    #    -B outputs the correspondence file (matched sources vs. index catalog)
-    #    used later to compute the WCS residual RMS.
+    logger.info('Image dimensions: %d x %d px', img_w, img_h)
+
+    # Step 2: Run solve-field with the xylist
+    #   Passing the xylist bypasses image2pnm / removelines (Python 3.8 helpers
+    #   that crash on Python 3.11). -B requests the correspondence file used for
+    #   the WCS residual RMS.
+    logger.info('Step 2: WCS calibration (astrometry.net)')
     corr_path = xylist.with_suffix('.corr')
     cmd = [
         'solve-field', '--no-plots',
-        '--no-remove-lines',        # skip removelines (Python 3.8 helper)
-        '-B', str(corr_path),       # correspondence file for RMS computation
+        '--no-remove-lines',
+        '-B', str(corr_path),
         str(xylist),
         '-w', str(img_w),
         '-e', str(img_h),
@@ -363,36 +420,42 @@ def main(args: list[str] | None = None) -> None:
     else:
         cmd += ['-T']
 
+    logger.info('solve-field: %s', ' '.join(cmd))
     print(' '.join(cmd))
     proc = subprocess.run(cmd, capture_output=True, text=True)
 
     if proc.returncode != 0:
         log_astro.write(proc.stderr)
         log_astro.close()
-        print(bcolors.FAIL
-              + f'ERROR: astrometry.net failed on {fits_path}'
-              + bcolors.ENDC)
+        msg = f'astrometry.net failed on {fits_path} (return code {proc.returncode})'
+        print(bcolors.FAIL + 'ERROR: ' + msg + bcolors.ENDC)
+        logger.error(msg)
+        if proc.stderr:
+            logger.debug('solve-field stderr:\n%s', proc.stderr.strip())
         return
 
     print(bcolors.OKGREEN + 'Astrometry solved.' + bcolors.ENDC)
+    logger.info('Astrometry solved successfully')
     log_astro.close()
 
-    # 3. Apply WCS solution to original image
-    #    solve-field writes the WCS to <xylist_stem>.wcs
+    # Step 3: Apply WCS to original image
+    logger.info('Step 3: applying WCS to %s', fits_path.name)
     wcs_file = xylist.with_suffix('.wcs')
     if not wcs_file.exists():
-        print(bcolors.FAIL
-              + f'ERROR: WCS output file not found: {wcs_file}'
-              + bcolors.ENDC)
+        msg = f'WCS output file not found: {wcs_file}'
+        print(bcolors.FAIL + 'ERROR: ' + msg + bcolors.ENDC)
+        logger.error(msg)
         return
 
     _apply_wcs(fits_path, wcs_file, outfile)
     print(bcolors.OKGREEN + f'WCS applied → {outfile}' + bcolors.ENDC)
+    logger.info('WCS applied → %s', outfile.name)
 
-    # 4. Report WCS quality
-    _wcs_rms(corr_path, outfile)
+    # Step 4: WCS quality assessment
+    logger.info('Step 4: WCS quality assessment')
+    _wcs_rms(corr_path, outfile, logger=logger)
 
-    # 4. Clean up astrometry.net temporary files
+    # Step 5: Clean up astrometry.net temporary files
     workdir = fits_path.parent if str(fits_path.parent) != '.' else Path.cwd()
     for pattern in ('*.axy', '*indx.xyls', '*.corr', '*.match',
                     '*.rdls', '*.solved', '*.wcs', '*.xyls'):
@@ -402,18 +465,22 @@ def main(args: list[str] | None = None) -> None:
             except OSError:
                 pass
 
-    # 5. Convert SIP distortion keywords to PV format
+    # Step 6: Convert SIP distortion keywords to PV format
+    logger.info('Step 5: converting SIP distortion to PV format')
     ok = sip_to_pv.sip_to_pv(
         infile     = str(outfile),
         outfile    = str(outfile),
         tpv_format = True)
 
-    if not ok:
-        print(bcolors.WARNING
-              + f'sip_to_pv failed. {outfile} retains SIP keywords only.'
-              + bcolors.ENDC)
+    if ok:
+        logger.info('sip_to_pv: SIP converted to PV format')
+    else:
+        msg = f'sip_to_pv failed — {outfile.name} retains SIP keywords only'
+        print(bcolors.WARNING + msg + bcolors.ENDC)
+        logger.warning(msg)
 
     log_sip2pv.close()
+    logger.info('Done — output: %s', outfile)
 
 
 if __name__ == '__main__':

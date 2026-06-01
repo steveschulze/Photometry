@@ -1,0 +1,23 @@
+2026-06-01T10:36:02  INFO      improve_astrometry.py  SN2015bn_SDSS_r_wcs.fits
+2026-06-01T10:36:02  INFO      Command: ../improve_astrometry.py --ra 11:33:41.550 --dec 00:43:33.50 --fits SN2015bn_SDSS_r_wcs.fits --tweak-order 1
+2026-06-01T10:36:02  INFO      Target : RA=173.423125  Dec=0.725972  radius=0.125 deg
+2026-06-01T10:36:02  INFO      Options: det_thresh=5.0  max_sources=500  tweak_order=1
+2026-06-01T10:36:02  INFO      Step 1: source detection
+2026-06-01T10:36:02  INFO      Source detection: 368 objects at 5.0σ (threshold 0.1355 ADU)
+2026-06-01T10:36:02  INFO      Windowed centroids: 365/368 succeeded
+2026-06-01T10:36:02  INFO      368 sources written to SN2015bn_SDSS_r_wcs.xyls
+2026-06-01T10:36:02  INFO      Image dimensions: 2423 x 2423 px
+2026-06-01T10:36:02  INFO      Step 2: WCS calibration (astrometry.net)
+2026-06-01T10:36:02  INFO      solve-field: solve-field --no-plots --no-remove-lines -B SN2015bn_SDSS_r_wcs.corr SN2015bn_SDSS_r_wcs.xyls -w 2423 -e 2423 --uniformize 0 --cpulimit 60 --ra 173.42312499999997 --dec 0.7259722222222222 --radius 0.125 --overwrite --tweak-order 1
+2026-06-01T10:36:04  INFO      Astrometry solved successfully
+2026-06-01T10:36:04  INFO      Step 3: applying WCS to SN2015bn_SDSS_r_wcs.fits
+2026-06-01T10:36:04  INFO      WCS applied → SN2015bn_SDSS_r_wcs_wcs.fits
+2026-06-01T10:36:04  INFO      Step 4: WCS quality assessment
+2026-06-01T10:36:04  INFO      WCS calibration quality — 83 matched stars
+2026-06-01T10:36:04  INFO        RMS residual : 448 mas  (1.131 px)
+2026-06-01T10:36:04  INFO        Pixel scale  : 0.3962 arcsec/px
+2026-06-01T10:36:04  INFO        Median sep   : 253 mas
+2026-06-01T10:36:04  INFO        Max sep      : 1974 mas
+2026-06-01T10:36:04  INFO      Step 5: converting SIP distortion to PV format
+2026-06-01T10:36:04  INFO      sip_to_pv: SIP converted to PV format
+2026-06-01T10:36:04  INFO      Done — output: SN2015bn_SDSS_r_wcs_wcs.fits
