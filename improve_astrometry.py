@@ -128,14 +128,38 @@ def _make_xylist(
             f'No sources detected at {detect_thresh}σ in {fits_path}. '
             'Lower --det-thresh or check the image.')
 
+    # Windowed centroids (equivalent to SExtractor's XWIN_IMAGE / YWIN_IMAGE).
+    # sep.winpos() uses a Gaussian-weighted iterative centroid that is more
+    # accurate than the isophotal first-moment estimate from sep.extract(),
+    # especially in crowded fields and for asymmetric PSFs.
+    # Use the per-object semi-major axis as the Gaussian sigma — this matches
+    # the SExtractor convention where sigma ≈ FWHM / 2.355 ≈ a / sqrt(2).
+    try:
+        sig = np.maximum(objects['a'] / np.sqrt(2.0), 0.5)  # min 0.5 px
+        xwin, ywin, flag_win = sep.winpos(data_sub,
+                                           objects['x'], objects['y'], sig)
+        good_win = flag_win == 0
+        x_pos = np.where(good_win, xwin, objects['x'])
+        y_pos = np.where(good_win, ywin, objects['y'])
+        n_win = int(good_win.sum())
+        print(bcolors.OKGREEN
+              + f'Windowed centroids: {n_win}/{len(objects)} succeeded'
+              + bcolors.ENDC)
+    except Exception as exc:
+        print(bcolors.WARNING
+              + f'sep.winpos failed ({exc}); falling back to isophotal centroids'
+              + bcolors.ENDC)
+        x_pos = objects['x']
+        y_pos = objects['y']
+
     # Sort brightest-first, limit to max_sources
     idx = np.argsort(objects['flux'])[::-1][:max_sources]
 
     # FITS BINTABLE with 1-indexed X, Y positions
     xylist_path = fits_path.with_suffix('.xyls')
     Table({
-        'X':    objects['x'][idx] + 1.0,   # sep 0-indexed → FITS 1-indexed
-        'Y':    objects['y'][idx] + 1.0,
+        'X':    x_pos[idx] + 1.0,   # sep 0-indexed → FITS 1-indexed
+        'Y':    y_pos[idx] + 1.0,
         'FLUX': objects['flux'][idx],
     }).write(str(xylist_path), format='fits', overwrite=True)
 
@@ -197,6 +221,77 @@ def _apply_wcs(original_fits: Path, wcs_file: Path, output_fits: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# WCS quality assessment
+# ---------------------------------------------------------------------------
+
+def _wcs_rms(corr_file: Path, wcs_fits: Path) -> None:
+    """Report the WCS calibration residual RMS from astrometry.net matches.
+
+    Reads the correspondence FITS file produced by ``solve-field -B``.
+    The angular separation between each detected source (reprojected through
+    the solved WCS) and its matched index catalog star gives the per-star
+    residual; the RMS over all matches is the overall calibration quality.
+
+    Parameters
+    ----------
+    corr_file : Path
+        Correspondence FITS BINTABLE written by solve-field (``-B`` flag).
+        Contains columns ``field_ra``, ``field_dec``, ``index_ra``,
+        ``index_dec`` with the matched-pair sky coordinates.
+    wcs_fits : Path
+        The output FITS file with the solved WCS (used to derive pixel scale
+        for reporting residuals in pixels as well as milli-arcseconds).
+    """
+    if not corr_file.exists():
+        print(bcolors.WARNING + 'Correspondence file not found; skipping RMS.' + bcolors.ENDC)
+        return
+
+    try:
+        from astropy.coordinates import SkyCoord
+        from astropy.wcs import WCS
+        from astropy.wcs.utils import proj_plane_pixel_scales
+        import astropy.units as u
+
+        corr = fits.getdata(str(corr_file))
+        n    = len(corr)
+
+        if n == 0:
+            print(bcolors.WARNING + 'No matches in correspondence file.' + bcolors.ENDC)
+            return
+
+        # Angular separation between detected source and index catalog star
+        field = SkyCoord(ra=corr['field_ra'] * u.deg,
+                         dec=corr['field_dec'] * u.deg)
+        index = SkyCoord(ra=corr['index_ra'] * u.deg,
+                         dec=corr['index_dec'] * u.deg)
+        sep_arcsec = field.separation(index).arcsec
+
+        rms_arcsec = float(np.sqrt(np.mean(sep_arcsec**2)))
+        rms_mas    = rms_arcsec * 1000.0
+
+        # Convert to pixels using the solved pixel scale
+        pix_scale = 1.0
+        try:
+            w = WCS(fits.getheader(str(wcs_fits)))
+            pix_scale = float(np.median(proj_plane_pixel_scales(w)) * 3600.0)
+        except Exception:
+            pass
+
+        rms_px = rms_arcsec / pix_scale if pix_scale > 0 else float('nan')
+
+        print(bcolors.OKBLUE
+              + f'\nWCS calibration quality ({n} matched stars)'
+              + bcolors.ENDC)
+        print(f'  RMS residual : {rms_mas:.0f} mas  ({rms_px:.3f} px)')
+        print(f'  Pixel scale  : {pix_scale:.4f} arcsec/px')
+        print(f'  Median sep   : {np.median(sep_arcsec)*1000:.0f} mas')
+        print(f'  Max sep      : {sep_arcsec.max()*1000:.0f} mas')
+
+    except Exception as exc:
+        print(bcolors.WARNING + f'WCS RMS computation failed: {exc}' + bcolors.ENDC)
+
+
+# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
@@ -238,15 +333,17 @@ def main(args: list[str] | None = None) -> None:
         print(bcolors.FAIL + str(exc) + bcolors.ENDC)
         return
 
-    # 2. Build solve-field command using the xylist
-    #    --xylist bypasses image2pnm / removelines (Python 3.8 helpers that
-    #    crash on Python 3.11) so solve-field runs as a pure C binary.
-    # Pass the xylist as a positional argument (solve-field auto-detects FITS
-    # BINTABLE vs image from the file content).
-    # -w / --width and -e / --height tell solve-field the image dimensions.
+    # 2. Build solve-field command using the xylist.
+    #    Passing the xylist as a positional argument bypasses image2pnm and
+    #    removelines — the Python 3.8 helper scripts that crash on Python 3.11.
+    #    -w / -e supply the image dimensions so solve-field knows the field size.
+    #    -B outputs the correspondence file (matched sources vs. index catalog)
+    #    used later to compute the WCS residual RMS.
+    corr_path = xylist.with_suffix('.corr')
     cmd = [
         'solve-field', '--no-plots',
-        '--no-remove-lines',    # skip removelines (Python 3.8 helper, breaks on 3.11)
+        '--no-remove-lines',        # skip removelines (Python 3.8 helper)
+        '-B', str(corr_path),       # correspondence file for RMS computation
         str(xylist),
         '-w', str(img_w),
         '-e', str(img_h),
@@ -291,6 +388,9 @@ def main(args: list[str] | None = None) -> None:
 
     _apply_wcs(fits_path, wcs_file, outfile)
     print(bcolors.OKGREEN + f'WCS applied → {outfile}' + bcolors.ENDC)
+
+    # 4. Report WCS quality
+    _wcs_rms(corr_path, outfile)
 
     # 4. Clean up astrometry.net temporary files
     workdir = fits_path.parent if str(fits_path.parent) != '.' else Path.cwd()
