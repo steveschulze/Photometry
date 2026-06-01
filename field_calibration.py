@@ -467,7 +467,7 @@ def main(argv=None):
                              f + '_SDSS', f + '_SDSS_ERR']][mask],
                     str(outdir / f'LS_SDSS_{f}.cat'),
                     overwrite=True, format='no_header')
-                logger.info('  LS_SDSS_%s.cat:   %4d sources', f, int(mask_good.sum()))
+                logger.info('  LS_SDSS_%s.cat:   %4d sources', f, int(mask.sum()))
 
             print(bcolors.WARNING + 'Convert LS -> SDSS -> Bessel' + bcolors.ENDC)
             logger.info('Colour transform: LS → SDSS → Bessel')
@@ -650,7 +650,7 @@ def main(argv=None):
                              f + '_SDSS', f + '_SDSS_ERR']][mask],
                     str(outdir / f'SkyMapper_SDSS_{f}.cat'),
                     overwrite=True, format='no_header')
-                logger.info('  SkyMapper_SDSS_%s.cat: %4d sources', f, int(mask_good.sum()))
+                logger.info('  SkyMapper_SDSS_%s.cat: %4d sources', f, int(mask.sum()))
 
             logger.info('Colour transform: SkyMapper → Bessel')
             cat_sm = cat_tools.sdss_to_bessel(cat_sm)
@@ -664,7 +664,7 @@ def main(argv=None):
                              f + '_BESSEL', f + '_BESSEL_ERR']][mask],
                     str(outdir / f'SkyMapper_BESSEL_{f}.cat'),
                     overwrite=True, format='no_header')
-                logger.info('  SkyMapper_BESSEL_%s.cat: %4d sources', f, int(mask_good.sum()))
+                logger.info('  SkyMapper_BESSEL_%s.cat: %4d sources', f, int(mask.sum()))
 
             logger.info('SkyMapper query successful')
             print(bcolors.OKGREEN + 'SkyMapper query successful.' + bcolors.ENDC)
