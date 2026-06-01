@@ -120,7 +120,7 @@ def main(argv=None):
     # Logger — log file named from coordinates so each field has its own record
     ra_clean  = args.ra.replace(':', '').replace(' ', '').replace('"', '')
     dec_clean = args.dec.replace(':', '').replace(' ', '').replace('"', '')
-    log_path  = outdir / f'{ra_clean}_{dec_clean}_fieldcalibration.log'
+    log_path  = f'{ra_clean}_{dec_clean}_fieldcalibration.log'
     logger    = setup_logging('field_calibration', log_path, level=args.loglevel)
 
     logger.info('field_calibration.py')

@@ -100,14 +100,7 @@ python photometry.py \
     --ref-file results/SDSS_SDSS_r.cat
 ```
 
-Or specify the catalogue by name (downloaded on-the-fly from Vizier):
 
-```bash
-python photometry.py \
-    --ra 11:33:41.550 --dec 00:43:33.50 \
-    --fits IMAGE.fits \
-    --ref-cat SDSS --ref-filter r
-```
 
 ### 4. HST photometry
 
@@ -211,9 +204,7 @@ All magnitudes are in the AB system.
 | `--ra` | required | RA of target |
 | `--dec` | required | Dec of target |
 | `--fits` | required | Science FITS file |
-| `--ref-file` | --- | Reference catalogue file |
-| `--ref-cat` | --- | Catalogue name (SDSS, 2MASS, PS1) |
-| `--ref-filter` | --- | Filter of reference catalogue |
+| `--ref-file` | required | Reference catalogue file (generate with field_calibration.py) |
 | `--ap-diam` | `1.0 1.5 2.0 3.0` | Aperture diameters in units of FWHM |
 | `--host-offset` | 5 | Detection radius around target (arcsec) |
 | `--tol` | 1 | Cross-matching tolerance (arcsec) |

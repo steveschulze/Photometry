@@ -70,14 +70,16 @@ def get_parser() -> argparse.ArgumentParser:
     p.add_argument('--ap-outer-annulus',   type=float, default=2.5,
                    help='Outer annulus scaling factor (× aperture diameter).')
 
-    p.add_argument('--auto',     action='store_true', default=False)
-    p.add_argument('--bw',       action='store_true', default=False)
+    p.add_argument('--auto',     action='store_true', default=False,
+                   help='Non-interactive mode.')
     p.add_argument('--centroid', action='store_true', default=False,
                    help='Centroid on the nearest detected source.')
-    p.add_argument('--keeptemp', action='store_true', default=False)
-    p.add_argument('--loglevel', type=str, default='INFO')
-    p.add_argument('--outdir',   type=str, default='results/')
-    p.add_argument('--sex-loglevel', type=str, default='WARNING')
+    p.add_argument('--keeptemp', action='store_true', default=False,
+                   help='Keep temporary files after completion.')
+    p.add_argument('--loglevel', type=str, default='INFO',
+                   help='Log level (DEBUG/INFO/WARNING/ERROR/CRITICAL).')
+    p.add_argument('--outdir',   type=str, default='results/',
+                   help='Output directory.')
     p.add_argument('--tol',      type=float, default=2,
                    help='Centroid search radius (arcsec).')
 

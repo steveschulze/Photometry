@@ -33,7 +33,7 @@ from     pathlib import Path
 
 import   numpy as np
 import   numpy.lib.recfunctions as rfn
-from     astropy import table, units as u
+from     astropy import table
 from     astropy.io import ascii, fits
 from     matplotlib import pylab as plt
 
@@ -64,46 +64,47 @@ def get_parser() -> argparse.ArgumentParser:
     p.add_argument('--host-offset', type=float, default=5,
                    help='Detection search radius around target (arcsec).')
 
-    p.add_argument('--ref-cat',    type=str, default=None,
-                   help='Reference catalogue name (SDSS, 2MASS, PS1, …).')
-    p.add_argument('--ref-filter', type=str, default=None,
-                   help='Filter of the reference catalogue.')
-    p.add_argument('--ref-file',   type=str, default=None,
-                   help='Local reference catalogue file. Overrides --ref-cat.')
-    p.add_argument('--ref-image',  type=str, default='',
-                   help='Reference image for sep dual-image mode.')
-    p.add_argument('--ref-radius', type=float, default=10,
-                   help='Vizier search radius (arcmin).')
+    p.add_argument('--ref-file',   type=str, required=True,
+                   help='Reference catalogue file (RA Dec MAG MAGERR, '
+                        'headerless ASCII).  Generate with field_calibration.py.')
 
-    p.add_argument('--ana-thresh',       type=float, default=1,
+    p.add_argument('--ana-thresh',      type=float, default=1,
                    help='Analysis threshold (sigma).')
-    p.add_argument('--ap-diam',          type=float, default=[1., 1.5, 2., 3.],
+    p.add_argument('--ap-diam',         type=float, default=[1., 1.5, 2., 3.],
                    nargs='+', help='Aperture diameters as multiples of FWHM.')
-    p.add_argument('--ap-diam-ul',       type=float, default=2, nargs='+',
-                   help='Aperture diameter for forced-phot upper limit.')
-    p.add_argument('--det-thresh',       type=float, default=1,
+    p.add_argument('--det-thresh',      type=float, default=1,
                    help='Detection threshold (sigma).')
-    p.add_argument('--gain',             type=str,   default=None,
-                   help='Header keyword for CCD gain (e-/ADU).')
-    p.add_argument('--back-size',        type=int,   default=64)
-    p.add_argument('--back-filtersize',  type=int,   default=3)
-    p.add_argument('--deblend-nthresh',  type=int,   default=64)
-    p.add_argument('--deblend-mincont',  type=float, default=0.0001)
-    p.add_argument('--noflags',          action='store_true', default=False)
+    p.add_argument('--gain',            type=str,   default=None,
+                   help='Header keyword for detector gain (e⁻/ADU).')
+    p.add_argument('--back-size',       type=int,   default=64,
+                   help='Background mesh size (pixels).')
+    p.add_argument('--back-filtersize', type=int,   default=3,
+                   help='Background filter size.')
+    p.add_argument('--deblend-nthresh', type=int,   default=64,
+                   help='Deblending sub-thresholds.')
+    p.add_argument('--deblend-mincont', type=float, default=0.0001,
+                   help='Minimum deblending contrast.')
+    p.add_argument('--noflags',         action='store_true', default=False,
+                   help='Do not filter on sep FLAGS.')
 
-    p.add_argument('--mag-cut',       type=float, default=12.)
-    p.add_argument('--mag-stdfaint',  type=str,   default='0')
-    p.add_argument('--mag-stdbright', type=str,   default='0')
-    p.add_argument('--maxstars',      type=int,   default=200)
+    p.add_argument('--mag-cut',       type=float, default=12.,
+                   help='Exclude stars brighter than this magnitude.')
+    p.add_argument('--mag-stdfaint',  type=str,   default='0',
+                   help='Faint magnitude limit for comparison stars.')
+    p.add_argument('--mag-stdbright', type=str,   default='0',
+                   help='Bright magnitude limit for comparison stars.')
+    p.add_argument('--maxstars',      type=int,   default=200,
+                   help='Maximum number of comparison stars.')
 
-    p.add_argument('--auto',      action='store_true', default=False)
-    p.add_argument('--bw',        action='store_true', default=False,
-                   help='Monochrome terminal output.')
-    p.add_argument('--keeptemp',  action='store_true', default=False)
-    p.add_argument('--loglevel',  type=str, default='INFO')
-    p.add_argument('--outdir',    type=str, default='results/')
-    p.add_argument('--sex-loglevel', type=str, default='WARNING')
-    p.add_argument('--tol',       type=float, default=1,
+    p.add_argument('--auto',     action='store_true', default=False,
+                   help='Non-interactive mode (auto magnitude cuts).')
+    p.add_argument('--keeptemp', action='store_true', default=False,
+                   help='Keep temporary files after completion.')
+    p.add_argument('--loglevel', type=str, default='INFO',
+                   help='Log level (DEBUG/INFO/WARNING/ERROR/CRITICAL).')
+    p.add_argument('--outdir',   type=str, default='results/',
+                   help='Output directory.')
+    p.add_argument('--tol',      type=float, default=1,
                    help='Cross-matching tolerance (arcsec).')
 
     return p
@@ -168,37 +169,17 @@ def main(argv: list[str] | None = None) -> None:
     # -----------------------------------------------------------------------
     print(bcolors.HEADER + bcolors.BOLD + '\nStep 2: Flux calibration\n' + bcolors.ENDC)
 
-    if args.ref_file is not None:
-        msg = f'Using catalogue: {args.ref_file}'
-        print(bcolors.OKGREEN + '\n' + msg + bcolors.ENDC)
-        logger.info(msg)
+    msg = f'Using catalogue: {args.ref_file}'
+    print(bcolors.OKGREEN + '\n' + msg + bcolors.ENDC)
+    logger.info(msg)
 
-        ref_cat = ascii.read(args.ref_file, names=('RA', 'DEC', 'MAG', 'MAGERR'))
-        object_properties['PHOTCAL'] = [args.ref_file]
+    ref_cat = ascii.read(args.ref_file, names=('RA', 'DEC', 'MAG', 'MAGERR'))
+    object_properties['PHOTCAL'] = [args.ref_file]
 
-        filename_stars = outdir / (object_properties['OBJECT'][0]
-                                   + '_' + Path(args.ref_file).stem + '.cat')
-        shutil.copy(args.ref_file,
-                    str(filename_stars).replace('.cat', '_refcat.cat'))
-
-    else:
-        msg = 'Retrieving catalogue from Vizier'
-        print(bcolors.OKGREEN + '\n' + msg + bcolors.ENDC)
-        logger.info(msg)
-
-        object_properties['PHOTCAL'] = [args.ref_cat + '/' + args.ref_filter]
-
-        filename_stars = outdir / (object_properties['OBJECT'][0]
-                                   + '_' + args.ref_cat
-                                   + '_' + args.ref_filter + '.cat')
-        cat_tools.retrieve_photcat(
-            object_properties, args.ref_cat, cat_tools.catalog_prop,
-            filename=str(filename_stars),
-            radius=args.ref_radius * u.arcmin,
-            output_dir=str(outdir))
-
-        shutil.copy(str(filename_stars),
-                    str(filename_stars).replace('.cat', '_refcat.cat'))
+    filename_stars = outdir / (object_properties['OBJECT'][0]
+                               + '_' + Path(args.ref_file).stem + '.cat')
+    shutil.copy(args.ref_file,
+                str(filename_stars).replace('.cat', '_refcat.cat'))
 
     # Build local sequence
     print(bcolors.OKGREEN + bcolors.BOLD + '\nBuilding the local sequence' + bcolors.ENDC)
@@ -240,7 +221,7 @@ def main(argv: list[str] | None = None) -> None:
         logger           = logger,
         output_dir       = str(outdir),
         phot_apertures   = np.array([10.]),
-        ref_image        = args.ref_image)
+)
 
     if not len(ref_stars):
         msg = ('No reference stars detected. Check --tol, image WCS, '
@@ -407,7 +388,7 @@ def main(argv: list[str] | None = None) -> None:
         logger           = logger,
         output_dir       = str(outdir),
         phot_apertures   = apertures,
-        ref_image        = args.ref_image)
+)
 
     summary_zeropoint = calibration.zeropoint(
         matched_standard, phot_stars,
@@ -437,7 +418,7 @@ def main(argv: list[str] | None = None) -> None:
         logger           = logger,
         output_dir       = str(outdir),
         phot_apertures   = apertures,
-        ref_image        = args.ref_image)
+)
 
     phot_science = extraction.extract_sources(
         args.fits,
@@ -455,7 +436,7 @@ def main(argv: list[str] | None = None) -> None:
         logger           = logger,
         output_dir       = str(outdir),
         phot_apertures   = apertures,
-        ref_image        = args.ref_image)
+)
 
     print(phot_science)
 

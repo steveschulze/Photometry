@@ -27,7 +27,7 @@ DELTAWIN_J2000_OBS 0.7259 nan nan degree
 "FLUX_RADIUS (arcsec)" 0.0 nan nan arcsec
 MAG_AUTO nan nan nan mag
 MAG_PETRO nan nan nan mag
-MAG_APER 22.496 nan 0.801 mag
+MAG_APER 22.495 nan 0.801 mag
 MAG_APER_1 22.302 3.202 0.724 mag
-MAG_APER_2 22.229 2.502 0.697 mag
-MAG_APER_3 21.749 1.355 0.585 mag
+MAG_APER_2 22.23 2.502 0.697 mag
+MAG_APER_3 21.75 1.355 0.585 mag
