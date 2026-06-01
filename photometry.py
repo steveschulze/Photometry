@@ -125,6 +125,9 @@ def main(argv: list[str] | None = None) -> None:
     log_path = Path(args.fits).with_name(Path(args.fits).stem + '_photometry.log')
     logger   = setup_logging('photometry', log_path, level=args.loglevel)
 
+    logger.info('photometry.py')
+    logger.info('Command: %s', ' '.join(sys.argv))
+
     # -----------------------------------------------------------------------
     # Step 1: Administration
     # -----------------------------------------------------------------------
@@ -132,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    logger.info(f'Output directory: {outdir}')
+    logger.info('Output directory: %s', outdir)
 
     ra_dd, dec_dd = fits_tools.convert_hms_dd(args.ra, args.dec)
 

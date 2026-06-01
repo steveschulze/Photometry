@@ -102,6 +102,9 @@ def main(argv: list[str] | None = None) -> None:
     log_path = Path(args.fits).with_name(Path(args.fits).stem + '_photometry.log')
     logger   = setup_logging('photometry_hst', log_path, level=args.loglevel)
 
+    logger.info('photometry_hst.py')
+    logger.info('Command: %s', ' '.join(sys.argv))
+
     # -----------------------------------------------------------------------
     # Step 1: Administration
     # -----------------------------------------------------------------------
@@ -369,6 +372,28 @@ def main(argv: list[str] | None = None) -> None:
     stem = Path(args.fits).stem
     ascii.write(zp_tbl,  outdir / (stem + '_zp.log'),   format='ecsv', overwrite=True)
     ascii.write(sci_tbl, outdir / (stem + '_phot.log'), format='ecsv', overwrite=True)
+
+    # Log the photometry summary table so the log file is self-contained
+    logger.info('')
+    logger.info('=== Photometry summary ===')
+    for row in sci_tbl:
+        prop = str(row['PROPERTY']).strip()
+        val  = row['VALUE']
+        erp  = row['ERROR+']
+        erm  = row['ERROR-']
+        cmt  = str(row['COMMENT']).strip()
+        if np.isnan(val):
+            # Header rows (date, filename, coords) have value=nan → use comment
+            logger.info('%-30s  %s', prop, cmt)
+        else:
+            if np.isnan(erp) and np.isnan(erm):
+                logger.info('%-30s  %10.4f              %s', prop, val, cmt)
+            else:
+                logger.info('%-30s  %10.4f  +%-8.4f  -%-8.4f  %s',
+                            prop, val,
+                            erp if np.isfinite(erp) else float('nan'),
+                            erm if np.isfinite(erm) else float('nan'),
+                            cmt)
 
     # -----------------------------------------------------------------------
     # Step 8: Cleanup

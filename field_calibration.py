@@ -602,9 +602,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nSkyMapper catalogue' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== SkyMapper DR2 ===')
+    
     if coordinates.dec.deg < 0:
-        logger.info('')
-        logger.info('=== SkyMapper DR2 ===')
         try:
             url = (
                 'http://skymapper.anu.edu.au/sm-cone/public/query'
