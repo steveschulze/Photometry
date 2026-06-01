@@ -1,0 +1,21 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: METHOD, datatype: string}
+# - {name: ZP, datatype: float32, format: .3f}
+# - {name: ZP_ERRP, datatype: float32, format: .3f}
+# - {name: ZP_ERRM, datatype: float32, format: .3f}
+# - {name: NUMBER, datatype: float128, format: 7g}
+# - {name: r(FWHM), datatype: float64}
+# - {name: diam(px), datatype: float64, format: .3f}
+# - {name: diam(arcsec), datatype: float64, format: .3f}
+# - {name: MAG_3UL_GLOB, datatype: float64, format: .3f}
+# - {name: AP_cor, datatype: float32, format: .3f}
+# schema: astropy-2.0
+METHOD ZP ZP_ERRP ZP_ERRM NUMBER r(FWHM) diam(px) diam(arcsec) MAG_3UL_GLOB AP_cor
+MAG_AUTO 22.44819 0.01729111 0.021073459 51.0 nan nan nan nan 0.037111282
+MAG_PETRO 22.461843 0.020258097 0.018582072 52.0 nan nan nan nan 0.02345848
+MAG_APER 22.306738 0.025026014 0.031154511 55.0 1.0 7.583652924441844 3.004582942863832 19.460102939074723 0.17856407
+MAG_APER_1 22.41457 0.021717185 0.021953836 52.0 1.5 11.375479386662766 4.506874414295748 19.575353221911264 0.07073212
+MAG_APER_2 22.456783 0.020688767 0.021950679 47.0 2.0 15.167305848883688 6.009165885727664 19.609900911650318 0.028518677
+MAG_APER_3 22.485302 0.017550774 0.019477867 48.0 3.0 22.750958773325532 9.013748828591496 19.638268756293897 0.0

@@ -570,6 +570,12 @@ def extract_sources(
             logger.warning(msg)
         return table.Table()
 
+    # sep.extract can return theta slightly outside [-pi/2, pi/2] due to
+    # floating-point drift in the second-moment computation.  sep.sum_ellipse
+    # raises "invalid aperture parameters" for any theta > pi/2 by even one
+    # ULP.  Clamp here so all downstream aperture calls receive valid angles.
+    objects['theta'] = np.clip(objects['theta'], -np.pi / 2.0, np.pi / 2.0)
+
     # 4. Windowed centroids (XWIN_IMAGE / YWIN_IMAGE equivalent) ---------------
     # sep.winpos() uses a Gaussian-weighted iterative centroid starting from the
     # isophotal position, matching SExtractor's XWIN_IMAGE algorithm.  Use

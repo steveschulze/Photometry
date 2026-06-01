@@ -24,10 +24,10 @@ ALPHAWIN_J2000_OBS 173.42316 nan nan degree
 DELTAWIN_J2000_OBS 0.7259 nan nan degree
 "DISTANCE (px)" 0.7 nan nan pixel
 "DISTANCE (arcsec)" 0.28 nan nan arcsec
-"FLUX_RADIUS (arcsec)" 0.0 nan nan arcsec
-MAG_AUTO nan nan nan mag
-MAG_PETRO nan nan nan mag
-MAG_APER 22.684 nan 0.851 mag
-MAG_APER_1 22.435 nan 0.757 mag
-MAG_APER_2 22.216 2.441 0.694 mag
-MAG_APER_3 21.519 1.112 0.538 mag
+"FLUX_RADIUS (arcsec)" 0.82 nan nan arcsec
+MAG_AUTO 22.513 nan 0.771 mag
+MAG_PETRO 22.703 nan 0.816 mag
+MAG_APER 22.685 nan 0.851 mag
+MAG_APER_1 22.432 nan 0.757 mag
+MAG_APER_2 22.215 2.441 0.694 mag
+MAG_APER_3 21.52 1.112 0.538 mag
