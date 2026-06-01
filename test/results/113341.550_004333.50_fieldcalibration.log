@@ -1,0 +1,91 @@
+2026-06-01T10:43:29  INFO      field_calibration.py
+2026-06-01T10:43:29  INFO      Command    : ../field_calibration.py --ra 11:33:41.550 --dec 00:43:33.50 --outdir results/
+2026-06-01T10:43:29  INFO      Target     : RA=11:33:41.550  Dec=00:43:33.50
+2026-06-01T10:43:29  INFO      Coordinates: RA=173.423125°  Dec=0.725972°
+2026-06-01T10:43:29  INFO      Search     : radius=10.0 arcmin
+2026-06-01T10:43:29  INFO      Output dir : results
+2026-06-01T10:43:29  INFO      
+2026-06-01T10:43:29  INFO      === SDSS DR12 (V/147) ===
+2026-06-01T10:43:29  INFO      Stars after selection: 896 (class=6, mode=1)
+2026-06-01T10:43:29  INFO        SDSS_SDSS_u.cat:  182 sources
+2026-06-01T10:43:29  INFO        SDSS_SDSS_g.cat:  432 sources
+2026-06-01T10:43:29  INFO        SDSS_SDSS_r.cat:  548 sources
+2026-06-01T10:43:29  INFO        SDSS_SDSS_i.cat:  589 sources
+2026-06-01T10:43:29  INFO        SDSS_SDSS_z.cat:  385 sources
+2026-06-01T10:43:29  INFO        SDSS_BESSEL_B.cat:  546 sources
+2026-06-01T10:43:29  INFO        SDSS_BESSEL_V.cat:  465 sources
+2026-06-01T10:43:29  INFO        SDSS_BESSEL_R.cat:  650 sources
+2026-06-01T10:43:29  INFO        SDSS_BESSEL_I.cat:  438 sources
+2026-06-01T10:43:29  INFO      Colour transform: SDSS → GROND
+2026-06-01T10:43:29  INFO        SDSS_GROND_g.cat:  569 sources
+2026-06-01T10:43:29  INFO        SDSS_GROND_r.cat:  658 sources
+2026-06-01T10:43:30  INFO        SDSS_GROND_i.cat:  681 sources
+2026-06-01T10:43:30  INFO        SDSS_GROND_z.cat:  504 sources
+2026-06-01T10:43:30  INFO      Colour transform: SDSS → DES
+2026-06-01T10:43:30  INFO        SDSS_DES_g.cat:    563 sources
+2026-06-01T10:43:30  INFO        SDSS_DES_r.cat:    655 sources
+2026-06-01T10:43:30  INFO        SDSS_DES_i.cat:    662 sources
+2026-06-01T10:43:30  INFO        SDSS_DES_z.cat:    504 sources
+2026-06-01T10:43:30  INFO      SDSS query successful
+2026-06-01T10:43:30  INFO      
+2026-06-01T10:43:30  INFO      === PanSTARRS DR1 (II/349) ===
+2026-06-01T10:43:30  INFO      Gaia astrometric stars in field: 287
+2026-06-01T10:43:30  INFO      PS1 stars after Gaia crossmatch: 170
+2026-06-01T10:43:30  INFO        PS1_PS1_g.cat:    166 sources
+2026-06-01T10:43:30  INFO        PS1_PS1_r.cat:    167 sources
+2026-06-01T10:43:30  INFO        PS1_PS1_i.cat:    168 sources
+2026-06-01T10:43:30  INFO        PS1_PS1_z.cat:    168 sources
+2026-06-01T10:43:30  INFO        PS1_PS1_y.cat:    168 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → SDSS
+2026-06-01T10:43:30  INFO        PS1_SDSS_u.cat:   129 sources
+2026-06-01T10:43:30  INFO        PS1_SDSS_g.cat:   154 sources
+2026-06-01T10:43:30  INFO        PS1_SDSS_r.cat:   154 sources
+2026-06-01T10:43:30  INFO        PS1_SDSS_i.cat:   154 sources
+2026-06-01T10:43:30  INFO        PS1_SDSS_z.cat:   154 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → HSC
+2026-06-01T10:43:30  INFO        PS1_HSC_g.cat:    166 sources
+2026-06-01T10:43:30  INFO        PS1_HSC_r.cat:    167 sources
+2026-06-01T10:43:30  INFO        PS1_HSC_i.cat:    168 sources
+2026-06-01T10:43:30  INFO        PS1_HSC_z.cat:    168 sources
+2026-06-01T10:43:30  INFO        PS1_HSC_y.cat:    168 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → SDSS → Bessel
+2026-06-01T10:43:30  INFO        PS1_BESSEL_B.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_BESSEL_V.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_BESSEL_R.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_BESSEL_I.cat:  154 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → ZTF
+2026-06-01T10:43:30  INFO        PS1_ZTF_g.cat:    166 sources
+2026-06-01T10:43:30  INFO        PS1_ZTF_r.cat:    166 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → SDSS → GROND
+2026-06-01T10:43:30  INFO        PS1_GROND_g.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_GROND_r.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_GROND_i.cat:  154 sources
+2026-06-01T10:43:30  INFO        PS1_GROND_z.cat:  154 sources
+2026-06-01T10:43:30  INFO      Colour transform: PS1 → SDSS → DES
+2026-06-01T10:43:30  INFO        PS1_DES_g.cat:    154 sources
+2026-06-01T10:43:30  INFO        PS1_DES_r.cat:    154 sources
+2026-06-01T10:43:30  INFO        PS1_DES_i.cat:    154 sources
+2026-06-01T10:43:30  INFO        PS1_DES_z.cat:    154 sources
+2026-06-01T10:43:30  INFO      PS1 query successful
+2026-06-01T10:43:30  INFO      
+2026-06-01T10:43:30  INFO      === DESI Legacy Imaging Survey DR10 ===
+2026-06-01T10:43:30  WARNING   Legacy Survey skipped: noirlab-datalab not installed
+2026-06-01T10:43:30  INFO      
+2026-06-01T10:43:30  INFO      === DES DR1 (II/357) ===
+2026-06-01T10:43:30  WARNING   DES not available: Field not covered by DES
+2026-06-01T10:43:30  INFO      SkyMapper skipped: Dec=0.726° > 0 (southern sky only)
+2026-06-01T10:43:30  INFO      
+2026-06-01T10:43:30  INFO      === 2MASS (II/246) ===
+2026-06-01T10:43:30  INFO      Stars retrieved: 133
+2026-06-01T10:43:30  INFO        2MASS_J.cat:      133 sources
+2026-06-01T10:43:30  INFO        2MASS_H.cat:      131 sources
+2026-06-01T10:43:30  INFO        2MASS_K.cat:      113 sources
+2026-06-01T10:43:30  INFO      2MASS query successful
+2026-06-01T10:43:30  INFO      
+2026-06-01T10:43:30  INFO      === AllWISE (II/328) ===
+2026-06-01T10:43:34  INFO      Stars retrieved: 14516
+2026-06-01T10:43:34  INFO        unWISE_W1.cat:    14516 sources
+2026-06-01T10:43:34  INFO        unWISE_W2.cat:    14516 sources
+2026-06-01T10:43:34  INFO      WISE query successful
+2026-06-01T10:43:34  INFO      
+2026-06-01T10:43:34  INFO      Done — output in results

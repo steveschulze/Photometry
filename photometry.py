@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> None:
     args.mag_stdfaint  = float(args.mag_stdfaint)
     args.mag_stdbright = float(args.mag_stdbright)
 
-    log_path = Path(args.fits).with_suffix('.log')
+    log_path = Path(args.fits).with_name(Path(args.fits).stem + '_photometry.log')
     logger   = setup_logging('photometry', log_path, level=args.loglevel)
 
     # -----------------------------------------------------------------------

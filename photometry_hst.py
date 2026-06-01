@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     # Logger
-    log_path = Path(args.fits).with_suffix('.log')
+    log_path = Path(args.fits).with_name(Path(args.fits).stem + '_photometry.log')
     logger   = setup_logging('photometry_hst', log_path, level=args.loglevel)
 
     # -----------------------------------------------------------------------
