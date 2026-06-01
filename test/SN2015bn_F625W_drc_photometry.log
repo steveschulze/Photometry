@@ -1,59 +1,59 @@
-2026-06-01T11:59:32  INFO      photometry_hst.py
-2026-06-01T11:59:32  INFO      Command: ../photometry_hst.py --ra 11:33:41.550 --dec 00:43:33.50 --fits SN2015bn_F625W_drc.fits --auto --outdir results/
-2026-06-01T11:59:32  INFO      Output directory: results
-2026-06-01T11:59:32  INFO      Target in footprint: OK
-2026-06-01T11:59:32  INFO      Step 2: source catalogue
-2026-06-01T11:59:34  WARNING   Kron photometry failed: invalid aperture parameters
-2026-06-01T11:59:34  WARNING   Petrosian photometry failed: invalid aperture parameters
-2026-06-01T11:59:34  INFO      Step 3: background
-2026-06-01T11:59:34  INFO      Step 4: photometry
-2026-06-01T11:59:35  INFO      Step 5: curve of growth
-2026-06-01T11:59:37  INFO      Step 6: cutout
-2026-06-01T11:59:39  INFO      Step 7: output tables
-2026-06-01T11:59:39  INFO      
-2026-06-01T11:59:39  INFO      === Photometry summary ===
-2026-06-01T11:59:39  INFO      FILENAME                        SN2015bn_F625W_drc.fits
-2026-06-01T11:59:39  INFO      DATE-OBS                        2017-06-01T00:00:00.000
-2026-06-01T11:59:39  INFO      MJD                             57905.0
-2026-06-01T11:59:39  INFO      EXPTIME                         2356.0
-2026-06-01T11:59:39  INFO      NCOMBINE                        1
-2026-06-01T11:59:39  INFO      RA                                173.4231              degree
-2026-06-01T11:59:39  INFO      DEC                                 0.7260              degree
-2026-06-01T11:59:39  INFO      X_IMAGE_EXP                      2191.3254              px
-2026-06-01T11:59:39  INFO      Y_IMAGE_EXP                      3173.6675              px
-2026-06-01T11:59:39  INFO      X_IMAGE_OBS                      2191.3250              px
-2026-06-01T11:59:39  INFO      Y_IMAGE_OBS                      3173.6680              px
-2026-06-01T11:59:39  INFO      DISTANCE (px)                       0.0000              px
-2026-06-01T11:59:39  INFO      DISTANCE (arcsec)                   0.0000              arcsec
-2026-06-01T11:59:39  INFO      FNU_APER_0                         -0.0726  +0.0154    -0.0154    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_0                         27.2420              mag
-2026-06-01T11:59:39  INFO      MAG_APER_0_2sigma                  27.6820              mag
-2026-06-01T11:59:39  INFO      MAG_APER_0_3sigma                  27.2420              mag
-2026-06-01T11:59:39  INFO      FNU_APER_1                         -0.2023  +0.0327    -0.0327    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_1                         26.4210              mag
-2026-06-01T11:59:39  INFO      MAG_APER_1_2sigma                  26.8620              mag
-2026-06-01T11:59:39  INFO      MAG_APER_1_3sigma                  26.4210              mag
-2026-06-01T11:59:39  INFO      FNU_APER_2                          0.4527  +0.0368    -0.0368    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_2                         24.7610  +0.0920    -0.0850    mag
-2026-06-01T11:59:39  INFO      MAG_APER_2_2sigma                  26.7320              mag
-2026-06-01T11:59:39  INFO      MAG_APER_2_3sigma                  26.2910              mag
-2026-06-01T11:59:39  INFO      FNU_APER_3                          1.2460  +0.0374    -0.0374    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_3                         23.6610  +0.0330    -0.0320    mag
-2026-06-01T11:59:39  INFO      MAG_APER_3_2sigma                  26.7170              mag
-2026-06-01T11:59:39  INFO      MAG_APER_3_3sigma                  26.2760              mag
-2026-06-01T11:59:39  INFO      FNU_APER_4                          3.2990  +0.0448    -0.0448    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_4                         22.6040  +0.0150    -0.0150    mag
-2026-06-01T11:59:39  INFO      MAG_APER_4_2sigma                  26.5200              mag
-2026-06-01T11:59:39  INFO      MAG_APER_4_3sigma                  26.0800              mag
-2026-06-01T11:59:39  INFO      FNU_APER_5                          4.4480  +0.0557    -0.0557    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_5                         22.2790  +0.0140    -0.0140    mag
-2026-06-01T11:59:39  INFO      MAG_APER_5_2sigma                  26.2830              mag
-2026-06-01T11:59:39  INFO      MAG_APER_5_3sigma                  25.8430              mag
-2026-06-01T11:59:39  INFO      FNU_APER_6                          4.8210  +0.0696    -0.0696    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_6                         22.1920  +0.0160    -0.0160    mag
-2026-06-01T11:59:39  INFO      MAG_APER_6_2sigma                  26.0400              mag
-2026-06-01T11:59:39  INFO      MAG_APER_6_3sigma                  25.6000              mag
-2026-06-01T11:59:39  INFO      FNU_APER_7                          4.9130  +0.0825    -0.0825    microJy
-2026-06-01T11:59:39  INFO      MAG_APER_7                         22.1720  +0.0180    -0.0180    mag
-2026-06-01T11:59:39  INFO      MAG_APER_7_2sigma                  25.8570              mag
-2026-06-01T11:59:39  INFO      MAG_APER_7_3sigma                  25.4160              mag
+2026-06-01T12:00:48  INFO      photometry_hst.py
+2026-06-01T12:00:48  INFO      Command: ../photometry_hst.py --ra 11:33:41.550 --dec 00:43:33.50 --fits SN2015bn_F625W_drc.fits
+2026-06-01T12:00:48  INFO      Output directory: results
+2026-06-01T12:00:48  INFO      Target in footprint: OK
+2026-06-01T12:00:48  INFO      Step 2: source catalogue
+2026-06-01T12:00:50  WARNING   Kron photometry failed: invalid aperture parameters
+2026-06-01T12:00:50  WARNING   Petrosian photometry failed: invalid aperture parameters
+2026-06-01T12:00:50  INFO      Step 3: background
+2026-06-01T12:00:50  INFO      Step 4: photometry
+2026-06-01T12:00:51  INFO      Step 5: curve of growth
+2026-06-01T12:00:54  INFO      Step 6: cutout
+2026-06-01T12:00:59  INFO      Step 7: output tables
+2026-06-01T12:00:59  INFO      
+2026-06-01T12:00:59  INFO      === Photometry summary ===
+2026-06-01T12:00:59  INFO      FILENAME                        SN2015bn_F625W_drc.fits
+2026-06-01T12:00:59  INFO      DATE-OBS                        2017-06-01T00:00:00.000
+2026-06-01T12:00:59  INFO      MJD                             57905.0
+2026-06-01T12:00:59  INFO      EXPTIME                         2356.0
+2026-06-01T12:00:59  INFO      NCOMBINE                        1
+2026-06-01T12:00:59  INFO      RA                                173.4231              degree
+2026-06-01T12:00:59  INFO      DEC                                 0.7260              degree
+2026-06-01T12:00:59  INFO      X_IMAGE_EXP                      2191.3254              px
+2026-06-01T12:00:59  INFO      Y_IMAGE_EXP                      3173.6675              px
+2026-06-01T12:00:59  INFO      X_IMAGE_OBS                      2191.3250              px
+2026-06-01T12:00:59  INFO      Y_IMAGE_OBS                      3173.6680              px
+2026-06-01T12:00:59  INFO      DISTANCE (px)                       0.0000              px
+2026-06-01T12:00:59  INFO      DISTANCE (arcsec)                   0.0000              arcsec
+2026-06-01T12:00:59  INFO      FNU_APER_0                         -0.0726  +0.0154    -0.0154    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_0                         27.2420              mag
+2026-06-01T12:00:59  INFO      MAG_APER_0_2sigma                  27.6820              mag
+2026-06-01T12:00:59  INFO      MAG_APER_0_3sigma                  27.2420              mag
+2026-06-01T12:00:59  INFO      FNU_APER_1                         -0.2023  +0.0327    -0.0327    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_1                         26.4210              mag
+2026-06-01T12:00:59  INFO      MAG_APER_1_2sigma                  26.8620              mag
+2026-06-01T12:00:59  INFO      MAG_APER_1_3sigma                  26.4210              mag
+2026-06-01T12:00:59  INFO      FNU_APER_2                          0.4527  +0.0368    -0.0368    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_2                         24.7610  +0.0920    -0.0850    mag
+2026-06-01T12:00:59  INFO      MAG_APER_2_2sigma                  26.7320              mag
+2026-06-01T12:00:59  INFO      MAG_APER_2_3sigma                  26.2910              mag
+2026-06-01T12:00:59  INFO      FNU_APER_3                          1.2460  +0.0374    -0.0374    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_3                         23.6610  +0.0330    -0.0320    mag
+2026-06-01T12:00:59  INFO      MAG_APER_3_2sigma                  26.7170              mag
+2026-06-01T12:00:59  INFO      MAG_APER_3_3sigma                  26.2760              mag
+2026-06-01T12:00:59  INFO      FNU_APER_4                          3.2990  +0.0448    -0.0448    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_4                         22.6040  +0.0150    -0.0150    mag
+2026-06-01T12:00:59  INFO      MAG_APER_4_2sigma                  26.5200              mag
+2026-06-01T12:00:59  INFO      MAG_APER_4_3sigma                  26.0800              mag
+2026-06-01T12:00:59  INFO      FNU_APER_5                          4.4480  +0.0557    -0.0557    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_5                         22.2790  +0.0140    -0.0140    mag
+2026-06-01T12:00:59  INFO      MAG_APER_5_2sigma                  26.2830              mag
+2026-06-01T12:00:59  INFO      MAG_APER_5_3sigma                  25.8430              mag
+2026-06-01T12:00:59  INFO      FNU_APER_6                          4.8210  +0.0696    -0.0696    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_6                         22.1920  +0.0160    -0.0160    mag
+2026-06-01T12:00:59  INFO      MAG_APER_6_2sigma                  26.0400              mag
+2026-06-01T12:00:59  INFO      MAG_APER_6_3sigma                  25.6000              mag
+2026-06-01T12:00:59  INFO      FNU_APER_7                          4.9130  +0.0825    -0.0825    microJy
+2026-06-01T12:00:59  INFO      MAG_APER_7                         22.1720  +0.0180    -0.0180    mag
+2026-06-01T12:00:59  INFO      MAG_APER_7_2sigma                  25.8570              mag
+2026-06-01T12:00:59  INFO      MAG_APER_7_3sigma                  25.4160              mag

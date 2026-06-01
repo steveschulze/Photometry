@@ -135,9 +135,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nSDSS catalogues' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== SDSS DR12 (V/147) ===')
+    
     try:
-        logger.info('')
-        logger.info('=== SDSS DR12 (V/147) ===')
         v      = Vizier(row_limit=100000)
         result = v.query_region(
             coordinates, radius=args.radius / 60. * u.deg,
@@ -230,9 +231,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nPS1 catalogues' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== PanSTARRS DR1 (II/349) ===')
+
     try:
-        logger.info('')
-        logger.info('=== PanSTARRS DR1 (II/349) ===')
         v           = Vizier(columns=['all'], row_limit=-1)
         result_gaia = v.query_region(
             coordinates, radius=args.radius * u.arcmin,
@@ -404,9 +406,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nDESI Legacy Imaging Surveys DR10' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== DESI Legacy Imaging Survey DR10 ===')
+
     try:
-        logger.info('')
-        logger.info('=== DESI Legacy Imaging Survey DR10 ===')
         result = cat_tools.query_noir_datalab_stars(
             coordinates.ra.value, coordinates.dec.value, args.radius)
 
@@ -502,9 +505,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nDES catalogues' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== DES DR1 (II/357) ===')
+
     try:
-        logger.info('')
-        logger.info('=== DES DR1 (II/357) ===')
         v      = Vizier(columns=['all'], row_limit=-1)
         result = v.query_region(
             coordinates, radius=args.radius / 60. * u.deg,
@@ -604,7 +608,7 @@ def main(argv=None):
 
     logger.info('')
     logger.info('=== SkyMapper DR2 ===')
-    
+
     if coordinates.dec.deg < 0:
         try:
             url = (
@@ -686,9 +690,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\n2MASS catalogues' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== 2MASS (II/246) ===')
+
     try:
-        logger.info('')
-        logger.info('=== 2MASS (II/246) ===')
         v      = Vizier(row_limit=10000)
         result = v.query_region(
             coord.SkyCoord(ra_dd, dec_dd, unit=u.deg),
@@ -726,9 +731,10 @@ def main(argv=None):
     # ------------------------------------------------------------------
     print(bcolors.OKBLUE + '\nAllWISE' + bcolors.ENDC)
 
+    logger.info('')
+    logger.info('=== AllWISE (II/328) ===')
+
     try:
-        logger.info('')
-        logger.info('=== AllWISE (II/328) ===')
         v         = Vizier(columns=['all'],
                            catalog=cat_tools.catalog_prop['WISE']['CATID'],
                            row_limit=-1)

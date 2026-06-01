@@ -531,9 +531,21 @@ def main(argv: list[str] | None = None) -> None:
 
     print('\n')
     print(bcolors.OKGREEN + '\nZeropoint\n' + bcolors.ENDC)
-    logger.info('Zeropoint summary')
-    logger.info(str(summary_zeropoint))
     print(summary_zeropoint)
+
+    # Log the zeropoint table row by row
+    logger.info('')
+    logger.info('=== Zeropoint summary ===')
+    for row in summary_zeropoint:
+        method = str(row['METHOD']).strip()
+        zp     = float(row['ZP'])
+        erp    = float(row['ZP_ERRP'])
+        erm    = float(row['ZP_ERRM'])
+        n      = int(row['NUMBER'])
+        diam   = row['diam(arcsec)'] if 'diam(arcsec)' in summary_zeropoint.colnames else float('nan')
+        diam_s = f'{float(diam):.2f}"' if np.isfinite(float(diam)) else 'n/a  '
+        logger.info('%-12s  ZP = %6.3f  +%-6.3f  -%-6.3f  N = %3d  diam = %s',
+                    method, zp, erp, erm, n, diam_s)
 
     print(bcolors.OKGREEN + '\nScience photometry\n' + bcolors.ENDC)
 
@@ -545,8 +557,28 @@ def main(argv: list[str] | None = None) -> None:
         summary_zeropoint,
         args.host_offset,
         logger)
-    logger.info(str(summary_science))
     summary_science.pprint(max_lines=-1)
+
+    # Log the science summary table in the same format as photometry_hst.py
+    logger.info('')
+    logger.info('=== Photometry summary ===')
+    for row in summary_science:
+        prop = str(row['PROPERTY']).strip()
+        val  = row['VALUE']
+        erp  = row['ERROR+']
+        erm  = row['ERROR-']
+        cmt  = str(row['COMMENT']).strip()
+        if np.isnan(val):
+            logger.info('%-30s  %s', prop, cmt)
+        else:
+            if np.isnan(erp) and np.isnan(erm):
+                logger.info('%-30s  %10.4f              %s', prop, val, cmt)
+            else:
+                logger.info('%-30s  %10.4f  +%-8.4f  -%-8.4f  %s',
+                            prop, val,
+                            erp if np.isfinite(erp) else float('nan'),
+                            erm if np.isfinite(erm) else float('nan'),
+                            cmt)
 
     # -----------------------------------------------------------------------
     # Step 6: Poststamp
