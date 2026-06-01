@@ -14,6 +14,8 @@ Usage
 Run ``python field_calibration.py --help`` for all options.
 """
 
+from __future__ import annotations
+
 __version__ = "2026-05-29"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
