@@ -1,0 +1,14 @@
+# Byte-compiled / cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+
+# Editor/backup
+*.bak
+*~
+
+# Jupyter
+.ipynb_checkpoints/
