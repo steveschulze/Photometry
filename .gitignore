@@ -12,3 +12,13 @@ __pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Data
+*.fits
+
+# Claude Code
+.claude/
+
+# Local run output
+/results/
+/test/
