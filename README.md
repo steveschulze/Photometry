@@ -1,8 +1,8 @@
 # Aperture photometry Pipeline
 
-Aperture photometry pipeline for ground-based and HST imaging of transients (supernovae, gamma-ray bursts, etc.).  Retrieves photometric reference catalogues from Vizier, builds a local comparison-star sequence, determines a photometric zeropoint, and measures calibrated aperture magnitudes.
+Aperture photometry pipeline for ground-based and HST imaging data. The tool retrieves photometric reference catalogues from Vizier, builds a local comparison-star sequence, determines a photometric zeropoint, and measures calibrated aperture magnitudes.
 
-Version 2026-05-29
+Version 2026-06-01
 
 ---
 
@@ -12,18 +12,19 @@ Version 2026-05-29
 |--------|---------|
 | `field_calibration.py` | Download reference catalogues from Vizier / NOIR DataLab |
 | `improve_astrometry.py` | Improve WCS solution with astrometry.net |
+| `align_images.py` | Align WCS of a science image to a reference image with SCAMP |
 | `photometry.py` | Aperture photometry for ground-based images |
 | `photometry_hst.py` | Aperture photometry + curve-of-growth for HST images |
 
 | Module | Purpose |
 |--------|---------|
-| `extraction.py` | sep source detection, aperture photometry, background estimation |
+| `extraction.py` | `sep` source detection, aperture photometry, background estimation |
 | `calibration.py` | Local sequence, zeropoint bootstrap, science output tables, poststamp |
-| `hst_routines.py` | HST-specific photometry, aperture corrections (pysynphot), curve-of-growth |
-| `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching, NOIR DataLab |
+| `hst_routines.py` | HST-specific photometry, aperture corrections (PySynphot), curve of growth |
+| `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching, NOIR DataLab access |
 | `fits_tools.py` | FITS utilities and WCS coordinate transformations |
 | `utils.py` | Terminal colour codes, bootstrap statistics, and `setup_logging` |
-| `plotsettings.py` | Matplotlib style and Vigit colour scheme |
+| `plotsettings.py` | Matplotlib style |
 | `sip_to_pv.py` | Convert SIP distortion keywords to PV format |
 
 ---
@@ -41,6 +42,8 @@ pip install noirlab-datalab
 # For astrometry improvement (requires astrometry.net binary):
 # macOS: brew install astrometry-net
 conda install conda-forge::astrometry
+# For image alignment (requires SCAMP binary):
+conda install conda-forge::astromatic-scamp
 ```
 
 **Key versions tested:** numpy 2.4.4, astropy 7.2.0, sep 1.4.1, photutils 3.0.0, pysynphot 2.0.0.
@@ -79,7 +82,7 @@ Catalogue naming: `{SOURCE}_{SYSTEM}_{FILTER}.cat`, e.g. `PS1_SDSS_r.cat`.
 
 ### 2. Improve astrometry (optional)
 
-Refine the WCS solution using astrometry.net and convert SIP distortion terms to PV format:
+Refine the WCS solution using astrometry.net and convert SIP distortion terms to PV format for Source Extractor:
 
 ```bash
 python improve_astrometry.py \
@@ -88,8 +91,25 @@ python improve_astrometry.py \
 ```
 
 Output: `IMAGE_wcs.fits` with improved WCS solution.
+Log: `IMAGE_astrometry.log` with WCS quality statistics (RMS residual, pixel scale, matched stars).
 
-### 3. Run photometry
+### 2b. Align images to a reference (optional)
+
+Align the WCS of a science image to a reference image using SCAMP.  Useful when several epochs need a common astrometric reference frame:
+
+```bash
+python align_images.py \
+    --ref-image reference.fits \
+    --new-image science.fits
+```
+
+Output: `science_astro.fits` with the aligned WCS applied.
+Log: `science_alignment.log` with SCAMP quality metrics.
+
+The reference image must have a valid WCS.  Sources are detected with `sep` and windowed centroids are used for both the reference and input catalogs.
+
+### 3. Get photometry
+### 3a. Ground-based image
 
 Requires a reference catalogue produced by `field_calibration.py`:
 
@@ -100,9 +120,7 @@ python photometry.py \
     --ref-file results/SDSS_SDSS_r.cat
 ```
 
-
-
-### 4. HST photometry
+### 3b. HST data
 
 ```bash
 python photometry_hst.py \
@@ -114,7 +132,7 @@ Requires pysynphot and a valid `$PYSYN_CDBS` environment variable pointing to th
 
 ---
 
-## Photometry pipeline workflow
+## Photometry workflow
 
 ```
 field_calibration.py
@@ -125,7 +143,7 @@ photometry.py
   Step 2: Build local comparison-star sequence
           +-- Run sep on reference star positions (ASSOC mode)
           +-- IQR-clip, flag filter, maxstars limit
-          +-- Cross-match sep catalog x reference catalog
+          +-- Cross-match sep catalog and reference catalog
   Step 3: Zeropoint determination
           +-- Bootstrap resampling (NITER=1000, ~0.07 s)
           +-- Diagnostic plots: ZP = m_cat - m_inst vs. magnitude, FWHM distribution
@@ -144,6 +162,8 @@ photometry.py
 
 | File | Format | Description |
 |------|--------|-------------|
+| `*_astro.fits` | FITS | Aligned image with updated WCS (from `align_images.py`) |
+| `*_alignment.log` | text | SCAMP quality metrics and run record (from `align_images.py`) |
 | `*_phot.log` | ECSV | Calibrated science photometry summary |
 | `*_zp.log` | ECSV | Zeropoint table (one row per aperture) |
 | `*_all_abs_cal.fits` | FITS BINTABLE | Full source catalogue with calibrated magnitudes |
@@ -179,10 +199,10 @@ MAG_PETRO          22.51     0.11     0.10     mag      <- Petrosian magnitude
 MAG_APER           22.50     0.03     0.03     mag      <- smallest aperture
 MAG_APER_1         22.30     0.02     0.02     mag
 MAG_APER_2         22.23     0.02     0.02     mag
-MAG_APER_3         21.75     0.02     0.02     mag      <- largest aperture
+MAG_APER_3         21.75     0.02     0.02     mag      <- largest circular aperture
 ```
 
-All magnitudes are in the AB system.
+Whether the photometry is in the AB or Vega system depends on the source catalogue.
 
 ---
 
@@ -196,6 +216,18 @@ All magnitudes are in the AB system.
 | `--dec` | required | Dec (DMS or decimal degrees) |
 | `--radius` | 10 | Search radius (arcmin) |
 | `--outdir` | `results/` | Output directory |
+
+### `align_images.py`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--ref-image` | required | Reference FITS image (must have a valid WCS) |
+| `--new-image` | required | Science image to be aligned |
+| `--det-thresh` | 5.0 | Source detection threshold (sigma above background) |
+| `--distort-degrees` | 1 | SCAMP polynomial degree for the distortion model |
+| `--position-maxerr` | 0.15 | Maximum positional offset for source matching (deg) |
+| `--sn-thresholds` | `10.0,40.0` | SCAMP S/N thresholds for two-pass matching |
+| `--keep-temp` | False | Keep intermediate LDAC catalogs and SCAMP files |
 
 ### `photometry.py`
 
@@ -292,9 +324,22 @@ All sky coordinate matching uses `astropy.coordinates.SkyCoord.match_to_catalog_
 Bootstrap + Monte Carlo resampling with IQR outlier rejection (vectorised NumPy --- runs at ~430x the speed of the original Python loop). The diagnostic plot shows ZP = m_cat - m_inst (positive) vs. apparent
 magnitude; outlier stars are highlighted in grey.
 
+### Image alignment (`align_images.py`)
+
+Source catalogs for SCAMP are built with `sep` (no SExtractor binary required).  Windowed centroids (`sep.winpos`) are used throughout.
+
+The SCAMP quality log reports:
+
+| Metric | Meaning |
+|--------|---------|
+| `XY_Contrast` | Pattern-match contrast; > 3 indicates a reliable, unambiguous solution |
+| `dRA`, `dDec` | Mean residual positional offsets (arcsec) |
+| `Sigma_alpha_int`, `Sigma_delta_int` | Internal 1-sigma scatter of matched pairs — primary precision indicator |
+| `Chi2_int` | Reduced χ² of the internal fit; ≈ 1 is well-conditioned |
+
 ### Logging
 
-Each script writes a detailed log file (same stem as the input FITS, `.log` extension).  Log level is controlled via `--loglevel` (default: `INFO`). Python warnings (e.g. numpy RuntimeWarning) are routed into the same log file via `logging.captureWarnings`.  All configuration is handled by `utils.setup_logging`, which prevents duplicate log entries on module reload and sets `propagate=False`.
+Each script writes a log file (same stem as the input FITS, `.log` extension).  Log level is controlled via `--loglevel` (default: `INFO`). Python warnings (e.g. numpy RuntimeWarning) are routed into the same log file via `logging.captureWarnings`.  All configuration is handled by `utils.setup_logging`, which prevents duplicate log entries on module reload and sets `propagate=False`.
 
 ---
 
@@ -302,9 +347,11 @@ Each script writes a detailed log file (same stem as the input FITS, `.log` exte
 
 If you use this pipeline, please cite the following software:
 
+- **scamp**: [Arnouts (2006)](http://adsabs.harvard.edu/abs/2006ASPC..351..112B)
 - **sep**: [Barbary (2016)](https://doi.org/10.21105/joss.00058)
 - **astropy**: [Astropy Collaboration (2022)](https://doi.org/10.3847/1538-4357/ac7c74)
 - **photutils**: [Bradley et al. (2022)](https://doi.org/10.5281/zenodo.6825092)
+
 
 and 
 
