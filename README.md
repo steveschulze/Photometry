@@ -2,7 +2,7 @@
 
 Aperture photometry pipeline for ground-based and HST imaging data. The tool retrieves photometric reference catalogues from Vizier, builds a local comparison-star sequence, determines a photometric zeropoint, and measures calibrated aperture magnitudes.
 
-Version 2026-06-01
+Version 2026-07-28
 
 ---
 
@@ -18,7 +18,7 @@ Version 2026-06-01
 
 | Module | Purpose |
 |--------|---------|
-| `extraction.py` | `sep` source detection, aperture photometry, background estimation |
+| `extraction.py` | `sep` source detection, aperture photometry, forced photometry, background estimation |
 | `calibration.py` | Local sequence, zeropoint bootstrap, science output tables, poststamp |
 | `hst_routines.py` | HST-specific photometry, aperture corrections (PySynphot), curve of growth |
 | `cat_tools.py` | Catalogue metadata, colour transformations, sky cross-matching, NOIR DataLab access |
@@ -150,6 +150,9 @@ photometry.py
   Step 4: Aperture photometry on science target
           +-- Run sep on full image (all sources)
           +-- Run sep with ASSOC near target position
+          +-- If undetected: forced photometry at the expected position
+              (same global background, RMS map, gain, and aperture radii
+               as the detection path) -> 3-sigma upper limits
   Step 5: Calibrate and summarise
   Step 6: Poststamp image
   Step 7: Write output files
@@ -204,6 +207,37 @@ MAG_APER_3         21.75     0.02     0.02     mag      <- largest circular aper
 
 Whether the photometry is in the AB or Vega system depends on the source catalogue.
 
+### Non-detections (forced photometry)
+
+If no source is found within `--host-offset` of the target, the pipeline falls
+back to **forced photometry** at the WCS-expected position instead of leaving
+the row blank.  The forced measurement deliberately reuses the same recipe as
+the detection path — global-mesh background subtraction, the per-pixel
+background-RMS map as the error image, the same detector gain, and the same
+aperture radii — so the reported brightness and uncertainty are directly
+comparable with detected sources.  The `*_phot.log` then contains, per aperture:
+
+```
+MAG_APER_PHOTUTILS          26.66  nan  nan  mag      <- flux measurement (= 3-sigma
+MAG_APER_PHOTUTILS_3SIGMA   26.66  nan  nan  mag         limit when flux <= 0)
+FNU_APER_PHOTUTILS       -0.039  0.026  ...  microJy  <- flux density (may be negative)
+```
+
+For a non-detection the flux scatters around zero, so `MAG_APER_PHOTUTILS`
+equals the 3-sigma upper limit `MAG_APER_PHOTUTILS_3SIGMA`, and the asymmetric
+`ERROR+/ERROR-` columns are `nan`.  Smaller apertures give the deepest limits
+(less sky noise integrated).
+
+### Zeropoint table (`*_zp.log`)
+
+One row per method (`MAG_AUTO`, `MAG_PETRO`, `MAG_APER[_N]`) with the zeropoint
+`ZP` and its bootstrap errors, the aperture size (`diam(px)`, `diam(arcsec)`),
+the aperture correction `AP_cor` (relative to the largest aperture), and
+`MAG_3UL_GLOB` — a **global 3-sigma limiting magnitude** estimated as the median
+calibrated magnitude of sources detected at ~3 sigma (`MAGERR` in 0.30-0.34).
+It is an image-wide, catalogue-based depth indicator, complementary to the
+sky-noise-based `*_3SIGMA` limit measured at the target position.
+
 ---
 
 ## Key options
@@ -240,7 +274,7 @@ Whether the photometry is in the AB or Vega system depends on the source catalog
 | `--ap-diam` | `1.0 1.5 2.0 3.0` | Aperture diameters in units of FWHM |
 | `--host-offset` | 5 | Detection radius around target (arcsec) |
 | `--tol` | 1 | Cross-matching tolerance (arcsec) |
-| `--gain` | --- | Header keyword for CCD gain (e-/ADU) |
+| `--gain` | auto | Extra header keyword to try for the CCD gain (e-/ADU). Even without this flag the standard keywords `CCDGAIN`, `ADCGAIN`, `ATODGAIN`, `GAIN`, `EGAIN` are searched automatically; if none is found the gain falls back to 1.0 with a yellow warning. |
 | `--auto` | False | Non-interactive (auto magnitude cuts) |
 | `--outdir` | `results/` | Output directory |
 
@@ -323,6 +357,37 @@ All sky coordinate matching uses `astropy.coordinates.SkyCoord.match_to_catalog_
 
 Bootstrap + Monte Carlo resampling with IQR outlier rejection (vectorised NumPy --- runs at ~430x the speed of the original Python loop). The diagnostic plot shows ZP = m_cat - m_inst (positive) vs. apparent
 magnitude; outlier stars are highlighted in grey.
+
+### Aperture photometry error model
+
+Flux errors combine the sky-background noise and the source Poisson term in
+quadrature, `fluxerr = sqrt(Sum_aperture rms^2 + flux/gain)`:
+
+- **Background subtraction** uses `sep.Background` (SExtractor MESH): the image
+  is tiled into `--back-size` (default 64 px) boxes, the background is
+  sigma-clipped per box, the mesh is median-filtered (`--back-filtersize`), and
+  spline-interpolated to full-resolution 2-D background and RMS maps.
+- The **per-pixel RMS map** is passed to `sep.sum_circle`/`sum_ellipse` as the
+  `err` image, so the sky term is included (not just source Poisson).
+- The **gain** is read from the header (see `--gain`) so the Poisson term is
+  correct; a missing gain falls back to 1.0 with a warning.
+- Magnitude errors are asymmetric: `ERROR+/- = -/+2.5 log10((F -/+ dF)/F)`;
+  when `dF > F` the bright-side error is `nan` (an effective non-detection).
+
+**Caveat — correlated noise.** The aperture error assumes independent pixels.
+Resampled/coadded images (e.g. SWarp output, non-integer effective gain) have
+spatially correlated noise, so the true aperture error is somewhat larger than
+`sqrt(Sum rms^2)`.  The HST path applies a drizzle correlation factor
+(`corr_factor`); the ground-based `sep` path does not, matching SExtractor's
+default behaviour.
+
+### Forced photometry (non-detections)
+
+`extraction.forced_photometry` measures at a fixed position with `sep` using the
+identical background, RMS map, gain, and aperture radii as `extract_sources`, so
+forced upper limits are consistent with detected-source magnitudes.  The
+photutils-based `extraction.aperture_photometry` (local-annulus background plus a
+drizzle `corr_factor`) is retained for the HST path (`photometry_hst.py`).
 
 ### Image alignment (`align_images.py`)
 

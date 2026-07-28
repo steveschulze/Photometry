@@ -473,7 +473,7 @@ def zeropoint(
                 fontsize=legend_size)
 
     plt.savefig(str(out_dir / (fits_path.stem + '_zp.pdf')), dpi=600)
-    plt.close()
+    # Figure left open so the caller's plt.show() can display it.
 
     # FWHM distribution plot
     plt.figure(6, figsize=(np.sqrt(2.) * 9, 9))
@@ -501,7 +501,7 @@ def zeropoint(
     ax_fwhm.set_ylabel('Normalised count / CDF')
 
     plt.savefig(str(out_dir / (fits_path.stem + '_fwhm.pdf')), dpi=600)
-    plt.close()
+    # Figure left open so the caller's plt.show() can display it.
 
     return result
 
@@ -772,4 +772,4 @@ def make_poststamp(
                                                       foreground='w')])
 
     plt.savefig(str(out_dir / (fits_path.stem + '_poststamp.pdf')), dpi=600)
-    plt.close()
+    # Figure left open so the caller's plt.show() can display it.

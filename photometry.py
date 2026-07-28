@@ -21,7 +21,7 @@ Run ``python photometry.py --help`` for all options.
 
 from __future__ import annotations
 
-__version__ = "2026-05-29"
+__version__ = "2026-07-28"
 __author__  = "Steve Schulze (steve.schulze@weizmann.ac.il)"
 
 import   argparse
@@ -34,7 +34,7 @@ from     pathlib import Path
 import   numpy as np
 import   numpy.lib.recfunctions as rfn
 from     astropy import table
-from     astropy.io import ascii, fits
+from     astropy.io import ascii
 from     matplotlib import pylab as plt
 
 import   calibration
@@ -453,23 +453,28 @@ def main(argv: list[str] | None = None) -> None:
         print(bcolors.FAIL + bcolors.BOLD + '\n' + msg + bcolors.ENDC)
         logger.info(msg)
 
-        with fits.open(args.fits) as hdu:
-            hdu_data = hdu[0].data
-
-        forced_phot = extraction.aperture_photometry(
-            hdu_data,
-            [x_exp, y_exp],
-            apertures,
-            1.2 * apertures,
-            2.0 * apertures,
-            1.0,
-            gain      = 10,
-            zeropoint = np.array(summary_zeropoint['ZP'][2:]))
+        # Measure at the expected position with the SAME recipe as the
+        # detection path: same global background (matching back-size /
+        # filter-size), same per-pixel RMS map, same header gain, and the
+        # aperture *radii* (= apertures / 2, since `apertures` holds diameters).
+        forced_gain = extraction.get_gain(args.fits, args.gain, logger)
+        forced_phot = extraction.forced_photometry(
+            args.fits,
+            (x_exp, y_exp),
+            0.5 * apertures,
+            back_size       = args.back_size,
+            back_filtersize = args.back_filtersize,
+            gain            = forced_gain,
+            zeropoint       = np.array(summary_zeropoint['ZP'][2:]),
+            logger          = logger)
     else:
         forced_phot = []
 
-    # Apply zeropoint calibration
-    for key in [k for k in phot_science.colnames if 'MAG_' in k]:
+    # Apply zeropoint calibration.  Iterate over phot_all's magnitude columns
+    # (always present) rather than phot_science's — when the target is not
+    # detected phot_science is empty, and gating on it would leave phot_all
+    # (and MAG_3UL_GLOB, and the saved *_all_abs_cal catalogue) uncalibrated.
+    for key in [k for k in phot_all.colnames if 'MAG_' in k]:
         zp_match = summary_zeropoint['ZP'][summary_zeropoint['METHOD'] == key]
         if not len(zp_match):
             continue
@@ -482,18 +487,20 @@ def main(argv: list[str] | None = None) -> None:
         errp_key = key.replace('MAG_', 'MAGERRP_')
         errm_key = key.replace('MAG_', 'MAGERRM_')
 
-        if not len(forced_phot):
-            phot_science[key]     += zp_val
-            phot_science[errp_key] = np.sqrt(phot_science[errp_key]**2 + erp_val**2)
-            phot_science[errm_key] = np.sqrt(phot_science[errm_key]**2 + erm_val**2)
-            for k in (key, errp_key, errm_key):
-                phot_science[k].format = '7.3f'
-
         phot_all[key]     += zp_val
         phot_all[errp_key] = np.sqrt(phot_all[errp_key]**2 + erp_val**2)
         phot_all[errm_key] = np.sqrt(phot_all[errm_key]**2 + erm_val**2)
         for k in (key, errp_key, errm_key):
             phot_all[k].format = '7.3f'
+
+        # Calibrate the science detection too (skipped when undetected —
+        # the forced-photometry table is already calibrated internally).
+        if not len(forced_phot) and key in phot_science.colnames:
+            phot_science[key]     += zp_val
+            phot_science[errp_key] = np.sqrt(phot_science[errp_key]**2 + erp_val**2)
+            phot_science[errm_key] = np.sqrt(phot_science[errm_key]**2 + erm_val**2)
+            for k in (key, errp_key, errm_key):
+                phot_science[k].format = '7.3f'
 
     # -----------------------------------------------------------------------
     # Step 5: Summaries
@@ -512,6 +519,11 @@ def main(argv: list[str] | None = None) -> None:
     summary_zeropoint['AP_cor']       = (summary_zeropoint['ZP'][-1]
                                          - summary_zeropoint['ZP'])
 
+    # Global 3-sigma limiting magnitude: the *typical* calibrated magnitude of
+    # sources detected at ~3 sigma (MAGERR ~ 1.0857/3 ~ 0.36; bin 0.30-0.34).
+    # Use the median rather than the brightest (min) of the bin — a single
+    # bright-but-poorly-measured source (blend, bad pixel) would otherwise bias
+    # the limit ~1 mag too shallow.  NaN-error rows are excluded automatically.
     for key in summary_zeropoint['METHOD']:
         if key not in phot_all.colnames:
             continue
@@ -523,7 +535,7 @@ def main(argv: list[str] | None = None) -> None:
         ul_mask = (errs >= 0.3) & (errs <= 0.34)
         if ul_mask.any():
             summary_zeropoint['MAG_3UL_GLOB'][
-                summary_zeropoint['METHOD'] == key] = float(mags[ul_mask].min())
+                summary_zeropoint['METHOD'] == key] = float(np.median(mags[ul_mask]))
 
     for k in ('ZP', 'ZP_ERRP', 'ZP_ERRM', 'MAG_3UL_GLOB', 'AP_cor',
                'diam(px)', 'diam(arcsec)'):

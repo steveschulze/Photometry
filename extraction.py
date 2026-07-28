@@ -11,6 +11,7 @@ background(image, ...)           Global background RMS via sep.Background
 background_local(image, aper)    Sigma-clipped stats inside an annulus
 get_gain(fits_path, keyword, ...) Read detector gain from FITS header
 aperture_photometry(...)          Circular aperture photometry via photutils
+forced_photometry(...)            Fixed-position sep photometry (detection-consistent)
 extract_sources(fits_path, ...)   sep-based source detection + photometry
 postprocess_catalog(catalog, ...) Convert negative fluxes; recompute errors
 setup_sextractor(output_dir)      Write SExtractor config files for astrometry.net
@@ -122,25 +123,28 @@ def get_gain(
 ) -> float:
     """Read detector gain from the FITS header.
 
-    Searches for common gain keywords in priority order:
-    CCDGAIN, ADCGAIN, ATODGAIN, then the user-supplied *keyword*.
+    Searches common gain keywords (CCDGAIN, ADCGAIN, ATODGAIN, GAIN, EGAIN).
+    If *keyword* is supplied it is tried first.  The header is searched even
+    when *keyword* is None, so images that store their gain under a standard
+    keyword are calibrated with the correct noise model by default.
 
     Parameters
     ----------
     fits_path : str | Path
         Path to the FITS file.
     keyword : str | None
-        Header keyword to try last. Pass ``None`` to skip and return 1.
+        Header keyword to try first. None → search the standard keywords only.
     logger : logging.Logger | None
-        Logger for error reporting.
+        Logger for diagnostics.
 
     Returns
     -------
     float
-        Gain in e⁻/ADU, or 1.0 if *keyword* is None.
+        Gain in e⁻/ADU.  Falls back to 1.0 (with a warning) if no gain
+        keyword is found.
     """
-    if keyword is None:
-        return 1.0
+    search_keys = ([keyword] if keyword else []) + [
+        'CCDGAIN', 'ADCGAIN', 'ATODGAIN', 'GAIN', 'EGAIN']
 
     try:
         with fits.open(str(fits_path)) as hdu:
@@ -150,22 +154,26 @@ def get_gain(
             if len(hdu) > 2:
                 header += hdu[2].header
 
-        for key in ('CCDGAIN', 'ADCGAIN', 'ATODGAIN', keyword):
+        for key in search_keys:
             if key in header:
-                return float(header[key])
-
-        msg = f'Gain keyword ({keyword}) not found in {fits_path}'
-        print(bcolors.BOLD + bcolors.FAIL + f'\n{msg}\n' + bcolors.ENDC)
-        if logger:
-            logger.error(msg)
-        sys.exit(1)
+                gain = float(header[key])
+                if logger:
+                    logger.info('Gain from header keyword %s: %g e-/ADU', key, gain)
+                return gain
 
     except (OSError, KeyError) as exc:
-        msg = f'Failed to read gain from {fits_path}: {exc}'
-        print(bcolors.BOLD + bcolors.FAIL + f'\n{msg}\n' + bcolors.ENDC)
+        msg = f'Failed to read gain from {fits_path}: {exc}; assuming gain = 1.0 e-/ADU'
+        print(bcolors.WARNING + f'\n{msg}\n' + bcolors.ENDC)
         if logger:
-            logger.error(msg)
-        sys.exit(1)
+            logger.warning(msg)
+        return 1.0
+
+    msg = (f'Gain keyword not found in {fits_path} '
+           f'(searched: {", ".join(search_keys)}); assuming gain = 1.0 e-/ADU')
+    print(bcolors.WARNING + f'\n{msg}\n' + bcolors.ENDC)
+    if logger:
+        logger.warning(msg)
+    return 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +297,113 @@ def aperture_photometry(
             src_tbl[col].info.format = '%.3e'
 
     return src_tbl
+
+
+# ---------------------------------------------------------------------------
+# Forced photometry (sep-based, consistent with the detection path)
+# ---------------------------------------------------------------------------
+
+def forced_photometry(
+    fits_path: str | Path,
+    position: Sequence[float],
+    radii: np.ndarray,
+    *,
+    back_size: int = 64,
+    back_filtersize: int = 3,
+    gain: float = 1.0,
+    zeropoint: float | np.ndarray = 0.0,
+    logger: logging.Logger | None = None,
+) -> table.Table:
+    """Forced circular aperture photometry at a fixed position, using sep.
+
+    Fallback measurement when :func:`extract_sources` finds no detection at
+    the target.  It deliberately reuses the *same* recipe as the detection
+    path so that the brightness and uncertainty are consistent with the
+    aperture photometry reported for detected sources:
+
+    * global-mesh background subtraction (:class:`sep.Background`, same
+      ``back_size`` / ``back_filtersize``),
+    * the per-pixel background-RMS map as the sep ``err`` image (so the sky
+      term matches), and
+    * the same detector ``gain`` (so the source-Poisson term matches).
+
+    Parameters
+    ----------
+    fits_path : str | Path
+        Science FITS file — the same image passed to :func:`extract_sources`.
+    position : array-like, shape (2,)
+        Target ``(x, y)`` pixel position, 1-indexed (FITS convention).
+    radii : np.ndarray
+        Aperture **radii** in pixels (not diameters).
+    back_size, back_filtersize : int
+        Background mesh and filter sizes.  Must match the science
+        :func:`extract_sources` call for the two backgrounds to agree.
+    gain : float
+        Detector gain in e⁻/ADU (from :func:`get_gain`).
+    zeropoint : float or np.ndarray
+        AB magnitude zeropoint per aperture.
+    logger : logging.Logger | None
+        Logger instance.
+
+    Returns
+    -------
+    astropy.table.Table
+        Single-row table with, per aperture ``i``: ``FLUX_APER_i``,
+        ``FLUXERR_APER_i``, ``ZP_APER_i``, ``FNU_APER_i``, ``FNUERR_APER_i``,
+        ``MAG_APER_i``, ``MAGERRP_APER_i``, ``MAGERRM_APER_i`` — the schema
+        consumed by :func:`calibration.make_scicat`.
+    """
+    data, _ = _load_fits_data(fits_path)
+
+    bkg = sep.Background(data, bw=back_size, bh=back_size,
+                         fw=back_filtersize, fh=back_filtersize)
+    sub = np.ascontiguousarray((data - bkg).astype(np.float64))
+    rms = np.ascontiguousarray(bkg.rms().astype(np.float64))
+
+    x0, y0 = float(position[0]) - 1.0, float(position[1]) - 1.0   # 1- → 0-indexed
+    radii  = np.atleast_1d(np.asarray(radii, dtype=float))
+    zp     = np.broadcast_to(np.asarray(zeropoint, dtype=float), len(radii))
+
+    tbl = table.Table()
+    for i, (r, zp_i) in enumerate(zip(radii, zp)):
+        flux, ferr, _ = sep.sum_circle(sub, [x0], [y0], float(r),
+                                       err=rms, gain=float(gain), subpix=5)
+        flux, ferr = float(flux[0]), float(ferr[0])
+
+        # Flux density in micro-Jy (AB ZP 23.9 ↔ 1 µJy)
+        factor  = 10.0 ** (-0.4 * (float(zp_i) - 23.9))
+        fnu     = flux * factor
+        fnu_err = ferr * factor
+
+        # Asymmetric magnitude errors — identical formula to postprocess_catalog.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            if fnu > 0:
+                mag  = -2.5 * np.log10(fnu) + 23.9
+                errp = -2.5 * np.log10(fnu - fnu_err) + 2.5 * np.log10(fnu)
+                errm = -2.5 * np.log10(fnu) + 2.5 * np.log10(fnu + fnu_err)
+            else:
+                # Non-detection: report a 3σ upper limit, undefined error bars.
+                mag  = -2.5 * np.log10(max(3.0 * fnu_err, 1e-30)) + 23.9
+                errp = np.nan
+                errm = np.nan
+
+        tbl[f'FLUX_APER_{i}']    = [flux]
+        tbl[f'FLUXERR_APER_{i}'] = [ferr]
+        tbl[f'ZP_APER_{i}']      = [float(zp_i)]
+        tbl[f'FNU_APER_{i}']     = [fnu]
+        tbl[f'FNUERR_APER_{i}']  = [fnu_err]
+        tbl[f'MAG_APER_{i}']     = [mag]
+        tbl[f'MAGERRP_APER_{i}'] = [errp]
+        tbl[f'MAGERRM_APER_{i}'] = [errm]
+
+    for col in tbl.colnames:
+        if col.startswith('MAG_APER') or col.startswith('ZP_APER'):
+            tbl[col].info.format = '%.3f'
+
+    if logger:
+        logger.info('Forced photometry at (%.2f, %.2f) px, gain=%g, %d apertures',
+                    float(position[0]), float(position[1]), float(gain), len(radii))
+    return tbl
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +648,10 @@ def extract_sources(
                                 fw=back_filtersize, fh=back_filtersize)
     sci_sub    = np.ascontiguousarray((sci_data - sci_bkg).astype(np.float64))
 
+    # Per-pixel background RMS map — passed to the aperture routines below so
+    # the flux errors include the sky-noise term, not just source Poisson.
+    sci_rms    = np.ascontiguousarray(sci_bkg.rms().astype(np.float64))
+
     # Save background-subtracted image as check file for diagnostics
     try:
         check_path = out_dir / ('check_' + fits_path.name)
@@ -626,7 +745,7 @@ def extract_sources(
             sci_sub,
             x_pos, y_pos,
             objects['a'], objects['b'], objects['theta'],
-            r_kron, gain=gain_val, subpix=5)
+            r_kron, err=sci_rms, gain=gain_val, subpix=5)
     except Exception as exc:
         if logger:
             logger.warning('Kron photometry failed: %s', exc)
@@ -657,7 +776,7 @@ def extract_sources(
             sci_sub,
             x_pos, y_pos,
             objects['a'], objects['b'], objects['theta'],
-            r_petro, gain=gain_val, subpix=5)
+            r_petro, err=sci_rms, gain=gain_val, subpix=5)
     except Exception as exc:
         if logger:
             logger.warning('Petrosian photometry failed: %s', exc)
@@ -679,7 +798,7 @@ def extract_sources(
             fl, fle, _ = sep.sum_circle(
                 sci_sub,
                 x_pos, y_pos,
-                float(r), gain=gain_val, subpix=5)
+                float(r), err=sci_rms, gain=gain_val, subpix=5)
         except Exception:
             fl  = np.zeros(len(objects))
             fle = np.zeros(len(objects))
