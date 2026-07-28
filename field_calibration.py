@@ -392,6 +392,29 @@ def main(argv=None):
                 overwrite=True, format='no_header')
             logger.info('  PS1_DES_%s.cat:   %4d sources', f, int(mask.sum()))
 
+        # PS1 → 2MASS J  (synthetic transformation; see ps1_to_2mass_J_transformation.ipynb)
+        print(bcolors.WARNING + 'Convert PS1 -> 2MASS J' + bcolors.ENDC)
+        logger.info('Colour transform: PS1 → 2MASS J')
+        result = cat_tools.ps1_to_2mass_j(copy.deepcopy(result_ps1_clean))
+        result['J_2MASS'].format     = '.4f'
+        result['J_2MASS_ERR'].format = '.4f'
+        # ps1_to_2mass_j() already NaNs M dwarfs+ and very blue stars (colour
+        # range); the stellar-locus cut additionally drops strong-metallicity /
+        # peculiar / binary / bad-photometry outliers.
+        on_locus = cat_tools.stellar_locus_mask(result)
+        n_range  = int(np.isfinite(result['J_2MASS']).sum())
+        mask = (np.isfinite(result['J_2MASS'])
+                & on_locus
+                & (result['J_2MASS_ERR'] > 0.)
+                & (result['J_2MASS_ERR'] < 0.3))
+        ascii.write(
+            result[['RAJ2000', 'DEJ2000', 'J_2MASS', 'J_2MASS_ERR']][mask],
+            str(outdir / 'PS1_2MASS_J.cat'),
+            overwrite=True, format='no_header')
+        logger.info('  PS1_2MASS_J.cat: %4d sources '
+                    '(%d in colour range, %d dropped as locus/err outliers)',
+                    int(mask.sum()), n_range, n_range - int(mask.sum()))
+
         logger.info('PS1 query successful')
         print(bcolors.OKGREEN + 'PS1 query successful.' + bcolors.ENDC)
 

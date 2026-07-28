@@ -242,6 +242,101 @@ def ps1_to_ztf(data: table.Table) -> table.Table:
     return data
 
 
+# PS1 grizy (AB) -> 2MASS J (Vega) synthetic transformation.
+# Derived by synthetic photometry of the Pickles stellar atlas through the PS1
+# and 2MASS passbands (SVO) with Fitzpatrick (1999) reddening; see the notebook
+# ps1_to_2mass_J_transformation.ipynb.  Cross-checked against Tonry et al.
+# (2012): synthetic A0V y_P1 - J = 0.530 vs their tabulated 0.531.
+#     J_2MASS = y_P1 - P(g-i),   P a cubic in (g-i)_P1
+PS1_J_COEFFS   = np.array([-0.07038, 0.01407, 0.40652, 0.59905])  # numpy high->low order
+PS1_J_GI_RANGE = (-0.86, 1.69)   # applicability: excludes M dwarfs+ (red) and very blue (O/early-B)
+PS1_J_SYS      = 0.05            # synthetic transformation scatter (mag)
+
+
+def ps1_to_2mass_j(data: table.Table) -> table.Table:
+    """Predict 2MASS ``J`` (Vega) from PanSTARRS1 ``grizy`` (AB) for stars.
+
+    ``J = y_PS1 - P(g-i)`` with ``P`` the cubic :data:`PS1_J_COEFFS`, derived
+    from synthetic photometry of the Pickles atlas through the PS1 and 2MASS
+    passbands (see ``ps1_to_2mass_J_transformation.ipynb``).  Valid for roughly
+    B--K stars, ``-0.86 < (g-i)_PS1 < 1.69``; stars outside that range
+    (M dwarfs and later, and very blue O/early-B stars) are set to NaN so that
+    they are dropped downstream.
+
+    Parameters
+    ----------
+    data : astropy.table.Table
+        Table with PS1 ``g_PS1``, ``i_PS1``, ``y_PS1`` columns and their
+        ``*_PS1_ERR`` uncertainties.
+
+    Returns
+    -------
+    astropy.table.Table
+        Input table with added ``J_2MASS`` (Vega mag) and ``J_2MASS_ERR``.
+    """
+    gi = np.asarray(data['g_PS1'] - data['i_PS1'], dtype=float)
+    P  = np.polyval(PS1_J_COEFFS, gi)
+    dP = np.polyval(np.polyder(PS1_J_COEFFS), gi)          # dP/d(g-i)
+    J  = np.asarray(data['y_PS1'], float) - P
+    # sigma_J^2 = sigma_y^2 + (dP)^2 (sigma_g^2 + sigma_i^2) + sigma_sys^2
+    Jerr = np.sqrt(np.asarray(data['y_PS1_ERR'], float)**2
+                   + dP**2 * (np.asarray(data['g_PS1_ERR'], float)**2
+                              + np.asarray(data['i_PS1_ERR'], float)**2)
+                   + PS1_J_SYS**2)
+    outside = (gi < PS1_J_GI_RANGE[0]) | (gi > PS1_J_GI_RANGE[1]) | ~np.isfinite(gi)
+    data['J_2MASS']     = np.where(outside, np.nan, J)
+    data['J_2MASS_ERR'] = np.where(outside, np.nan, Jerr)
+    return data
+
+
+def stellar_locus_mask(data: table.Table, nsigma: float = 3.0,
+                       niter: int = 3) -> np.ndarray:
+    """Flag PS1 stars lying off the fiducial ``(g-r, r-i)`` stellar locus.
+
+    A robust cubic is fit to ``(r-i)`` vs ``(g-r)`` and outliers are rejected
+    iteratively at *nsigma* times the MAD-based scatter.  This statistically
+    removes strongly non-solar-metallicity stars, unresolved binaries, blends,
+    QSO/galaxy contaminants and bad photometry, which lie off the tight
+    dwarf/giant locus.  Reddening moves stars *along* the locus, so reddened
+    stars are not preferentially rejected.
+
+    Note: broadband PS1 colours cannot separate luminosity class, so normal-
+    coloured supergiants are *not* removed by this cut — they are rare and get
+    down-weighted / clipped in the zeropoint bootstrap.  A Gaia parallax or
+    reduced-proper-motion cut would be needed to target them directly.
+
+    Parameters
+    ----------
+    data : astropy.table.Table
+        Table with PS1 ``g_PS1``, ``r_PS1``, ``i_PS1`` columns.
+    nsigma : float
+        Rejection threshold in robust sigma.
+    niter : int
+        Number of clipping iterations.
+
+    Returns
+    -------
+    numpy.ndarray of bool
+        True for on-locus stars.
+    """
+    gr = np.asarray(data['g_PS1'] - data['r_PS1'], float)
+    ri = np.asarray(data['r_PS1'] - data['i_PS1'], float)
+    finite = np.isfinite(gr) & np.isfinite(ri)
+    keep = finite.copy()
+    for _ in range(niter):
+        if keep.sum() < 8:
+            break
+        p     = np.polyfit(gr[keep], ri[keep], 3)
+        resid = ri - np.polyval(p, gr)
+        med   = np.median(resid[keep])
+        mad   = np.median(np.abs(resid[keep] - med))
+        sig   = 1.4826 * mad if mad > 0 else np.std(resid[keep])
+        if sig <= 0:
+            break
+        keep = finite & (np.abs(resid - med) < nsigma * sig)
+    return keep
+
+
 def sdss_to_des(data: table.Table) -> table.Table:
     """Convert SDSS to DES photometry.
 

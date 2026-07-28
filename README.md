@@ -316,7 +316,20 @@ Starting from SDSS photometry (or equivalent via PS1->SDSS conversion):
 - PS1 -> SDSS (u g r i z)
 - PS1 -> HSC (g r i z y)
 - PS1 -> ZTF (g r)
+- PS1 -> 2MASS J (synthetic; **stars only**)
 - DES -> SDSS (g r i z)
+
+**PS1 -> 2MASS J** is a synthetic transformation, $J = y_{P1} - P(g-i)$, derived by
+synthetic photometry of the Pickles atlas through the PS1 and 2MASS passbands (see
+[`ps1_to_2mass_J_transformation.ipynb`](ps1_to_2mass_J_transformation.ipynb)). It lets a
+$J$-band zeropoint be set from deep PS1 photometry where 2MASS itself is too shallow. Only
+valid for ordinary $\sim$B–K stars ($-0.86 < (g-i)_{P1} < 1.69$): the query drops M dwarfs
+and later, very blue stars (colour range), and strong-metallicity / peculiar / binary /
+bad-photometry outliers (a robust $(g-r, r-i)$ stellar-locus cut). Broadband PS1 colours
+cannot separate luminosity class, so rare supergiants are not removed directly (they are
+clipped in the zeropoint bootstrap). Written to `PS1_2MASS_J.cat`. Per-star scatter is
+$\sim$0.05–0.1 mag, and the relation is robust to Milky-Way foreground reddening for
+$E(B\!-\!V) < 0.3$.
 
 ---
 
