@@ -613,9 +613,29 @@ def main(argv: list[str] | None = None) -> None:
     # `apertures` holds diameters (px); pass radii and arcsec-diameter labels
     # so the measurement apertures are drawn on the left poststamp panel.
     ap_labels = [f'{d * pix_scale:.2f} arcsec' for d in apertures]
+
+    # Elliptical Kron (AUTO) and Petrosian apertures — reconstructed exactly as
+    # extract_sources measures them (r_kron/r_petro applied to the source's
+    # A/B/THETA).  Only meaningful for a detected source.
+    ellipses = None
+    if coord_obs[0] is not None and len(phot_science) > 0:
+        row     = phot_science[0]
+        a_img   = float(row['A_IMAGE'])
+        b_img   = float(row['B_IMAGE'])
+        theta   = float(row['THETA_IMAGE'])            # degrees
+        r_kron  = max(extraction.KRON_FACTOR  * float(row['KRON_RADIUS']),
+                      extraction.KRON_MIN_R)
+        r_petro = max(extraction.PETRO_FACTOR * float(row['FLUX_RADIUS']),
+                      extraction.PETRO_MIN_R)
+        ellipses = [
+            (2 * r_kron  * a_img, 2 * r_kron  * b_img, theta, 'Kron (AUTO)'),
+            (2 * r_petro * a_img, 2 * r_petro * b_img, theta, 'Petrosian'),
+        ]
+
     calibration.make_poststamp(
         args.fits, (x_exp, y_exp), coord_obs, output_dir=str(outdir),
-        aperture_radii=0.5 * apertures, aperture_labels=ap_labels)
+        aperture_radii=0.5 * apertures, aperture_labels=ap_labels,
+        ellipses=ellipses)
 
     # -----------------------------------------------------------------------
     # Step 7: Save outputs
