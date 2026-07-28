@@ -610,8 +610,12 @@ def main(argv: list[str] | None = None) -> None:
     else:
         coord_obs = (None, None)
 
+    # `apertures` holds diameters (px); pass radii and arcsec-diameter labels
+    # so the measurement apertures are drawn on the left poststamp panel.
+    ap_labels = [f'{d * pix_scale:.2f} arcsec' for d in apertures]
     calibration.make_poststamp(
-        args.fits, (x_exp, y_exp), coord_obs, output_dir=str(outdir))
+        args.fits, (x_exp, y_exp), coord_obs, output_dir=str(outdir),
+        aperture_radii=0.5 * apertures, aperture_labels=ap_labels)
 
     # -----------------------------------------------------------------------
     # Step 7: Save outputs

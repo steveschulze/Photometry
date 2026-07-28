@@ -29,6 +29,7 @@ from astropy import stats, table, time
 from astropy.io import ascii, fits
 from matplotlib import pylab as plt
 from matplotlib.colors import LogNorm
+from matplotlib.patches import Circle
 import matplotlib.patheffects as PathEffects
 from scipy import optimize
 
@@ -682,12 +683,17 @@ def make_poststamp(
     coord_exp: tuple[float, float],
     coord_obs: tuple[float | None, float | None],
     output_dir: str | Path = '',
+    aperture_radii: 'np.ndarray | None' = None,
+    aperture_labels: 'list[str] | None' = None,
 ) -> None:
     """Create a two-panel diagnostic poststamp.
 
     Shows the background-subtracted check image (left panel) and the science
     image (right panel) centred on the expected target position, with crosses
-    marking the expected (blue) and observed (green) positions.
+    marking the expected (blue) and observed (green) positions.  When
+    ``aperture_radii`` is given, the measurement apertures are overlaid on the
+    left panel so the user can judge visually which aperture best captures the
+    target (SExtractor-style check image; ``sep`` produces none).
 
     Parameters
     ----------
@@ -700,6 +706,13 @@ def make_poststamp(
         Pass ``(None, None)`` if the source was not detected.
     output_dir : str | Path
         Directory for the output PDF (default: same as FITS file).
+    aperture_radii : np.ndarray | None
+        Measurement aperture **radii** in pixels.  Drawn as concentric circles
+        on the left panel, centred on the position actually measured (observed
+        centroid if detected, else the expected position).
+    aperture_labels : list[str] | None
+        Legend labels for each aperture (same length as *aperture_radii*).
+        Defaults to the diameter in pixels if omitted.
     """
     fits_path  = Path(fits_path)
     out_dir    = Path(output_dir) if output_dir else fits_path.parent
@@ -759,6 +772,31 @@ def make_poststamp(
         oy = float(coord_obs[1]) - cy + halfwidth - 1
         for ax in (ax_chk, ax_sci):
             ax.errorbar(ox, oy, mew=5, marker='x', color=color_green, ms=12)
+
+    # Overlay the measurement apertures (left panel) so the user can judge
+    # which aperture best isolates the target from sky and neighbours.
+    if aperture_radii is not None and len(aperture_radii):
+        if coord_obs[0] is not None:
+            tx = float(coord_obs[0]) - cx + halfwidth - 1
+            ty = float(coord_obs[1]) - cy + halfwidth - 1
+        else:
+            tx = ty = float(halfwidth)
+        radii   = np.atleast_1d(np.asarray(aperture_radii, dtype=float))
+        # High-contrast hues that avoid the reserved green (observed) and
+        # blue (expected) markers, cycled if there are many apertures.
+        palette = ['#d62728', '#ff7f0e', '#9467bd', '#8c564b',
+                   '#e377c2', '#bcbd22']
+        circles = []
+        for j, r in enumerate(radii):
+            lbl = (aperture_labels[j] if aperture_labels is not None
+                   and j < len(aperture_labels) else f'{2.0 * r:.1f} px')
+            c = Circle((tx, ty), radius=float(r), fill=False, lw=2,
+                       edgecolor=palette[j % len(palette)], label=lbl)
+            ax_chk.add_patch(c)
+            circles.append(c)
+        ax_chk.legend(handles=circles, loc='upper left', fontsize=legend_size,
+                      framealpha=0.65, handlelength=1.2, borderpad=0.4,
+                      labelspacing=0.3)
 
     ax_sci.text(0.95, 0.95, '\\textbf{Observed}', ha='right', va='top',
                 transform=ax_sci.transAxes, color=color_green,
