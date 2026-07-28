@@ -820,9 +820,11 @@ def make_poststamp(
                 ax_chk.add_patch(e)
                 handles.append(e)
 
-        ax_chk.legend(handles=handles, loc='upper left', fontsize=legend_size,
-                      framealpha=0.65, handlelength=1.6, borderpad=0.4,
-                      labelspacing=0.3)
+        # ncol (not ncols) for matplotlib < 3.6 compatibility.
+        ax_chk.legend(handles=handles, loc='upper left',
+                      fontsize=legend_size - 6, ncol=2, framealpha=0.65,
+                      handlelength=1.6, borderpad=0.4, labelspacing=0.3,
+                      columnspacing=0.8)
 
     ax_sci.text(0.95, 0.95, '\\textbf{Observed}', ha='right', va='top',
                 transform=ax_sci.transAxes, color=color_green,
