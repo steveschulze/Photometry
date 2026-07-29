@@ -12,7 +12,7 @@ hst_aperture_photometry(...)    Aperture photometry on drizzled HST images
 hst_make_cutout(...)            Multi-panel aperture diagnostic cutout
 hst_cog(...)                    Curve of growth with Monte Carlo errors
 hst_scale(instrument, mode)     Native pixel scale per HST detector
-hst_zeropoint(header, diameter) AB zeropoint + pysynphot aperture correction
+hst_zeropoint(header, radius)   AB zeropoint + pysynphot aperture correction
 """
 
 from __future__ import annotations
@@ -104,27 +104,29 @@ def hst_scale(instrument: str, mode: str | None) -> float:
 
 def hst_zeropoint(
     header: fits.Header,
-    diameter: np.ndarray | list[float],
+    radius: np.ndarray | list[float],
 ) -> np.ndarray:
     """Compute HST AB zeropoint with pysynphot aperture correction.
 
     Derives the infinite-aperture zeropoint from PHOTFLAM and PHOTPLAM,
     then uses pysynphot to compute the enclosed-flux fraction at each
-    requested aperture diameter.
+    requested aperture radius.
 
     Parameters
     ----------
     header : fits.Header
         FITS header containing HST photometric keywords (PHOTFLAM, PHOTPLAM,
         PHOTMODE or INSTRUME/FILTER/APERTURE/DATE-OBS).
-    diameter : array-like
-        Aperture diameters in arcseconds.  Diameters ≥ 4″ are treated as
-        infinite (no correction).
+    radius : array-like
+        Aperture radii in arcseconds, matching pysynphot's ``aper#`` obsmode
+        keyword (which is itself a radius, not a diameter). Radii ≥ 4″ are
+        treated as infinite (no correction), matching the r=4″ reference
+        aperture used for the absolute HST photometric calibration.
 
     Returns
     -------
     np.ndarray
-        AB zeropoints (one per diameter) including aperture correction.
+        AB zeropoints (one per radius) including aperture correction.
     """
     try:
         import pysynphot as pyS
@@ -138,9 +140,9 @@ def hst_zeropoint(
               - 5.0 * np.log10(header['PHOTPLAM'])
               - 2.408)
 
-    spec_bb  = pyS.BlackBody(10000)
-    diameter = np.atleast_1d(
-        np.where(np.asarray(diameter) < 4.0, diameter, 4.0))
+    spec_bb = pyS.BlackBody(10000)
+    radius  = np.atleast_1d(
+        np.where(np.asarray(radius) < 4.0, radius, 4.0))
 
     try:
         filt = (header['FILTER1']
@@ -149,13 +151,13 @@ def hst_zeropoint(
     except KeyError:
         filt = header.get('FILTER', header.get('FILTNAM1', 'CLEAR'))
 
-    ap_correction = np.ones(len(diameter))
+    ap_correction = np.ones(len(radius))
 
     if header.get('INSTRUME', '').upper() not in ('WFPC2', 'NICMOS'):
         try:
             photmode = header['PHOTMODE'].replace(' ', ',')
-            bps     = [pyS.ObsBandpass(f'{photmode},aper#{d:.2f}')
-                       for d in diameter]
+            bps     = [pyS.ObsBandpass(f'{photmode},aper#{r:.2f}')
+                       for r in radius]
             bp_ref  = pyS.ObsBandpass(f'{photmode},aper#4.00')
         except Exception:
             mjd  = int(time.Time(header['DATE-OBS'],
@@ -163,14 +165,14 @@ def hst_zeropoint(
             inst = header['INSTRUME']
             det  = header['APERTURE']
             bps  = [pyS.ObsBandpass(
-                        f'{inst},{det},{filt},mjd#{mjd},aper#{d:.2f}')
-                    for d in diameter]
+                        f'{inst},{det},{filt},mjd#{mjd},aper#{r:.2f}')
+                    for r in radius]
             bp_ref = pyS.ObsBandpass(
                 f'{inst},{det},{filt},mjd#{mjd},aper#4.00')
 
         cr_ref = pyS.Observation(spec_bb, bp_ref).countrate()
-        for i, (d, bp) in enumerate(zip(diameter, bps)):
-            if d < 4.0:
+        for i, (r, bp) in enumerate(zip(radius, bps)):
+            if r < 4.0:
                 ap_correction[i] = (pyS.Observation(spec_bb, bp).countrate()
                                     / cr_ref)
     else:
@@ -240,7 +242,7 @@ def hst_aperture_photometry(
     inner_px   = np.asarray(inner_annulus) / pix2arcsec
     outer_px   = np.asarray(outer_annulus) / pix2arcsec
 
-    zp         = hst_zeropoint(hdu_header, 2 * np.asarray(radii))
+    zp         = hst_zeropoint(hdu_header, np.asarray(radii))
 
     for key in ('CCDGAIN', 'ADCGAIN', 'ATODGAIN'):
         if key in hdu_header:
@@ -377,7 +379,6 @@ def hst_cog(
         ax.set_ylim(valid.max(), valid.min() - 0.5)
 
     plt.savefig(str(out_dir / f'{stem}_cog.pdf'))
-    plt.close()
 
 
 # ---------------------------------------------------------------------------
@@ -482,4 +483,3 @@ def hst_make_cutout(
 
     plt.savefig(
         str(Path(output_dir) / (Path(fits_path).stem + '.pdf')), dpi=600)
-    plt.close()
